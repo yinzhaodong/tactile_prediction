@@ -4,3 +4,5 @@
 #		-  Robot sequence, r 1*6 float16, [[x0,y0,z0,r0,p0,y0], [x1,y1,z1,r1,p1,y1], ..., [xN,yN,zN,rN,pN,yN]]
 #		-  Slip Classification, s bool, [s0, s1, ..., sN]
 
+import numpy
+import cv2
