@@ -31,7 +31,7 @@ from scipy.spatial.transform import Rotation as R
 from scipy.ndimage.interpolation import map_coordinates
 
 data_dir = '/home/user/Robotics/Data_sets/slip_detection/test_dataset/'
-model_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTP/"
+model_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTP/saved_models/"
 
 seed = 42
 epochs = 100
