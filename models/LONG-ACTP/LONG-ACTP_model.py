@@ -50,8 +50,8 @@ class BatchGenerator:
         dataset_train = FullDataSet(self.data_map, train=True)
         dataset_validate = FullDataSet(self.data_map, validation=True)
         transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=False)
+        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=False)
         self.data_map = []
         return train_loader, validation_loader
 
@@ -76,9 +76,9 @@ class FullDataSet:
         return [robot_data.astype(np.float32), tactile_data.astype(np.float32), experiment_number, time_steps]
 
 
-class ACTP(nn.Module):
+class LONG_ACTP(nn.Module):
     def __init__(self):
-        super(ACTP, self).__init__()
+        super(LONG_ACTP, self).__init__()
         self.lstm1 = nn.LSTM(48 + 12, 200).to(device)  # tactile
         self.lstm2 = nn.LSTM(200, 200).to(device)  # tactile
         self.fc1 = nn.Linear(200 + 48, 200).to(device)  # tactile + pos
@@ -122,7 +122,7 @@ class ACTP(nn.Module):
 class ModelTrainer:
     def __init__(self):
         self.train_full_loader, self.valid_full_loader = BG.load_full_data()
-        self.full_model = ACTP()
+        self.full_model = LONG_ACTP()
         self.criterion = nn.L1Loss()
         self.criterion1 = nn.L1Loss()
         self.optimizer = optim.Adam(self.full_model.parameters(), lr=learning_rate)
@@ -134,7 +134,6 @@ class ModelTrainer:
         best_val_loss = 100.0
         early_stop_clock = 0
         progress_bar = tqdm(range(0, epochs), total=(epochs*len(self.train_full_loader)))
-        mean_test = 0
         for epoch in progress_bar:
             losses = 0.0
             for index, batch_features in enumerate(self.train_full_loader):
@@ -187,8 +186,7 @@ class ModelTrainer:
             else:
                 if best_val_loss > val_losses / index__:
                     print("saving model")
-                    torch.save(self.full_model, model_save_path + "ACTP_model")
-                    self.strongest_model = copy.deepcopy(self.full_model)
+                    torch.save(self.full_model, model_save_path + "LONG_ACTP_model")
                     best_val_loss = val_losses / index__
                 early_stop_clock = 0
                 previous_val_mean_loss = val_losses / index__

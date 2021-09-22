@@ -14,7 +14,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTP/saved_models/"
+
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTVP/saved_models/"
 train_data_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/train_image_dataset_10c_10h/"
 scaler_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/"
 
@@ -70,51 +71,81 @@ class FullDataSet:
     def __getitem__(self, idx):
         value = self.samples[idx]
         robot_data = np.load(train_data_dir + value[0])
-        tactile_data = np.load(train_data_dir + value[1])
+
+        tactile_images = []
+        for image_name in np.load(train_data_dir + value[2]):
+            tactile_images.append(np.load(train_data_dir + image_name))
+
         experiment_number = np.load(train_data_dir + value[3])
         time_steps = np.load(train_data_dir + value[4])
-        return [robot_data.astype(np.float32), tactile_data.astype(np.float32), experiment_number, time_steps]
+        return [robot_data.astype(np.float32), np.array(tactile_images).astype(np.float32), experiment_number, time_steps]
 
 
-class ACTP(nn.Module):
+class ConvLSTMCell(nn.Module):
+    def __init__(self, input_dim, hidden_dim, kernel_size, bias):
+        super(ConvLSTMCell, self).__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.kernel_size = kernel_size
+        self.padding = kernel_size[0] // 2, kernel_size[1] // 2
+        self.bias = bias
+        self.conv = nn.Conv2d(in_channels=self.input_dim + self.hidden_dim, out_channels=4 * self.hidden_dim,
+                              kernel_size=self.kernel_size, padding=self.padding, bias=self.bias)
+
+    def forward(self, input_tensor, cur_state):
+        h_cur, c_cur = cur_state
+        combined = torch.cat([input_tensor, h_cur], dim=1)  # concatenate along channel axis
+        combined_conv = self.conv(combined)
+        cc_i, cc_f, cc_o, cc_g = torch.split(combined_conv, self.hidden_dim, dim=1)
+        i = torch.sigmoid(cc_i)
+        f = torch.sigmoid(cc_f)
+        o = torch.sigmoid(cc_o)
+        g = torch.tanh(cc_g)
+        c_next = f * c_cur + i * g
+        h_next = o * torch.tanh(c_next)
+        return h_next, c_next
+
+    def init_hidden(self, batch_size, image_size):
+        height, width = image_size
+        return (torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device).to(device),
+                torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device).to(device))
+
+
+class ACTVP(nn.Module):
     def __init__(self):
-        super(ACTP, self).__init__()
-        self.lstm1 = nn.LSTM(48 + 12, 200).to(device)  # tactile
-        self.lstm2 = nn.LSTM(200, 200).to(device)  # tactile
-        self.fc1 = nn.Linear(200 + 48, 200).to(device)  # tactile + pos
-        self.fc2 = nn.Linear(200, 48).to(device)  # tactile + pos
-        self.tan_activation = nn.Tanh().to(device)
+        super(ACTVP, self).__init__()
+        self.convlstm1 = ConvLSTMCell(input_dim=3, hidden_dim=12, kernel_size=(3, 3), bias=True).cuda()
+        self.convlstm2 = ConvLSTMCell(input_dim=24, hidden_dim=24, kernel_size=(3, 3), bias=True).cuda()
+        self.conv1 = nn.Conv2d(in_channels=27, out_channels=3, kernel_size=5, stride=1, padding=2).cuda()
 
     def forward(self, tactiles, actions):
+        self.batch_size = actions.shape[1]
         state = actions[0]
         state.to(device)
         batch_size__ = tactiles.shape[1]
+        hidden_1, cell_1 = self.convlstm1.init_hidden(batch_size=self.batch_size, image_size=(32, 32))
+        hidden_2, cell_2 = self.convlstm2.init_hidden(batch_size=self.batch_size, image_size=(32, 32))
         outputs = []
-        hidden1 = (torch.zeros(1, batch_size__, 200, device=torch.device('cuda')), torch.zeros(1, batch_size__, 200, device=torch.device('cuda')))
-        hidden2 = (torch.zeros(1, batch_size__, 200, device=torch.device('cuda')), torch.zeros(1, batch_size__, 200, device=torch.device('cuda')))
-
-        for index, (sample_tactile, sample_action,) in enumerate(zip(tactiles.squeeze()[:-1], actions.squeeze()[1:])):
+        for index, (sample_tactile, sample_action) in enumerate(zip(tactiles[0:-1].squeeze(), actions[1:].squeeze())):
+            sample_tactile.to(device)
+            sample_action.to(device)
             # 2. Run through lstm:
             if index > context_frames-1:
-                out4 = out4.squeeze()
-                tiled_action_and_state = torch.cat((actions.squeeze()[index+1], state), 1)
-                action_and_tactile = torch.cat((out4, tiled_action_and_state), 1)
-                out1, hidden1 = self.lstm1(action_and_tactile.unsqueeze(0), hidden1)
-                out2, hidden2 = self.lstm2(out1, hidden2)
-                lstm_and_prev_tactile = torch.cat((out2.squeeze(), out4), 1)
-                out3 = self.tan_activation(self.fc1(lstm_and_prev_tactile))
-                out4 = self.tan_activation(self.fc2(out3))
-                outputs.append(out4.squeeze())
+                hidden_1, cell_1 = self.convlstm1(input_tensor=output, cur_state=[hidden_1, cell_1])
+                state_action = torch.cat((state, sample_action), 1)
+                robot_and_tactile = torch.cat((torch.cat(32*[torch.cat(32*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3), hidden_1.squeeze()), 1)
+                hidden_2, cell_2 = self.convlstm2(input_tensor=robot_and_tactile, cur_state=[hidden_2, cell_2])
+                skip_connection_added = torch.cat((hidden_2, output), 1)
+                output = self.conv1(skip_connection_added)
+                outputs.append(output)
             else:
-                tiled_action_and_state = torch.cat((actions.squeeze()[index+1], state), 1)
-                action_and_tactile = torch.cat((sample_tactile, tiled_action_and_state), 1)
-                out1, hidden1 = self.lstm1(action_and_tactile.unsqueeze(0), hidden1)
-                out2, hidden2 = self.lstm2(out1, hidden2)
-                lstm_and_prev_tactile = torch.cat((out2.squeeze(), sample_tactile), 1)
-                out3 = self.tan_activation(self.fc1(lstm_and_prev_tactile))
-                out4 = self.tan_activation(self.fc2(out3))
-                last_output = out4
-
+                hidden_1, cell_1 = self.convlstm1(input_tensor=sample_tactile, cur_state=[hidden_1, cell_1])
+                state_action = torch.cat((state, sample_action), 1)
+                robot_and_tactile = torch.cat((torch.cat(32*[torch.cat(32*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3), hidden_1.squeeze()), 1)
+                hidden_2, cell_2 = self.convlstm2(input_tensor=robot_and_tactile, cur_state=[hidden_2, cell_2])
+                skip_connection_added = torch.cat((hidden_2, sample_tactile), 1)
+                output = self.conv1(skip_connection_added)
+                last_output = output
         outputs = [last_output] + outputs
         return torch.stack(outputs)
 
@@ -122,7 +153,7 @@ class ACTP(nn.Module):
 class ModelTrainer:
     def __init__(self):
         self.train_full_loader, self.valid_full_loader = BG.load_full_data()
-        self.full_model = ACTP()
+        self.full_model = ACTVP()
         self.criterion = nn.L1Loss()
         self.criterion1 = nn.L1Loss()
         self.optimizer = optim.Adam(self.full_model.parameters(), lr=learning_rate)
@@ -138,8 +169,8 @@ class ModelTrainer:
         for epoch in progress_bar:
             losses = 0.0
             for index, batch_features in enumerate(self.train_full_loader):
-                action  = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
-                tactile = torch.flatten(batch_features[1], start_dim=2).permute(1, 0, 2).to(device)
+                tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
+                action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
 
                 tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)  # Step 3. Run our forward pass.
                 self.optimizer.zero_grad()
@@ -162,8 +193,8 @@ class ModelTrainer:
             val_losses = 0.0
             with torch.no_grad():
                 for index__, batch_features in enumerate(self.valid_full_loader):
-                    action  = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
-                    tactile = torch.flatten(batch_features[1], start_dim=2).permute(1, 0, 2).to(device)
+                    tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
+                    action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
 
                     tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)
                     self.optimizer.zero_grad()
@@ -187,7 +218,7 @@ class ModelTrainer:
             else:
                 if best_val_loss > val_losses / index__:
                     print("saving model")
-                    torch.save(self.full_model, model_save_path + "ACTP_model")
+                    torch.save(self.full_model, model_save_path + "ACTVP_model")
                     self.strongest_model = copy.deepcopy(self.full_model)
                     best_val_loss = val_losses / index__
                 early_stop_clock = 0
