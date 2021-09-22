@@ -1,0 +1,22 @@
+ACTP model:
+
+tactile_data -------------->  ------------skip con--------->|
+                            [concat] --> lstm1 --> lstm2 -->[concat] --> FC --> FC --> output
+robot_state  -->[concat] -->|
+                |
+robot_action -->
+
+
+tiled_action_and_state = torch.cat((actions.squeeze()[index+1], state), 1)
+
+action_and_tactile = torch.cat((sample_tactile, tiled_action_and_state), 1)
+
+out1, hidden1 = self.lstm1(action_and_tactile.unsqueeze(0), hidden1)
+
+out2, hidden2 = self.lstm2(out1, hidden2)
+
+lstm_and_prev_tactile = torch.cat((out2.squeeze(), sample_tactile), 1)
+
+out3 = self.tan_activation(self.fc1(lstm_and_prev_tactile))
+
+out4 = self.tan_activation(self.fc2(out3))

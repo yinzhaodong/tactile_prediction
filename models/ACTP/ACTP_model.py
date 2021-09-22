@@ -92,10 +92,10 @@ class FullDataSet:
 class ATPM(nn.Module):
     def __init__(self):
         super(ATPM, self).__init__()
-        self.lstm1 = nn.LSTM(48 + 48, 200).to(device)  # tactile
+        self.lstm1 = nn.LSTM(48 + 12, 200).to(device)  # tactile
         self.lstm2 = nn.LSTM(200, 200).to(device)  # tactile
-        self.fc1 = nn.Linear(200 + 48, 200).to(device)  # tactile + pos_vel
-        self.fc2 = nn.Linear(200, 48).to(device)  # tactile + pos_vel
+        self.fc1 = nn.Linear(200 + 48, 200).to(device)  # tactile + pos
+        self.fc2 = nn.Linear(200, 48).to(device)  # tactile + pos
         self.tan_activation = nn.Tanh().to(device)
 
     def forward(self, tactiles, actions):
@@ -103,14 +103,14 @@ class ATPM(nn.Module):
         state.to(device)
         batch_size__ = tactiles.shape[1]
         outputs = []
-        hidden1 = (torch.zeros(1,batch_size__,200, device=torch.device('cuda')), torch.zeros(1,batch_size__,200, device=torch.device('cuda')))
-        hidden2 = (torch.zeros(1,batch_size__,200, device=torch.device('cuda')), torch.zeros(1,batch_size__,200, device=torch.device('cuda')))
+        hidden1 = (torch.zeros(1, batch_size__, 200, device=torch.device('cuda')), torch.zeros(1, batch_size__, 200, device=torch.device('cuda')))
+        hidden2 = (torch.zeros(1, batch_size__, 200, device=torch.device('cuda')), torch.zeros(1, batch_size__, 200, device=torch.device('cuda')))
 
         for index, (sample_tactile, sample_action,) in enumerate(zip(tactiles.squeeze()[:-1], actions.squeeze()[1:])):
             # 2. Run through lstm:
             if index > context_frames-1:
-                out4 = out4 .squeeze()
-                tiled_action_and_state = torch.cat((actions.squeeze()[index+1], state, actions.squeeze()[index+1], state, actions.squeeze()[index+1], state, actions.squeeze()[index+1], state), 1)
+                out4 = out4.squeeze()
+                tiled_action_and_state = torch.cat((actions.squeeze()[index+1], state), 1)
                 action_and_tactile = torch.cat((out4, tiled_action_and_state), 1)
                 out1, hidden1 = self.lstm1(action_and_tactile.unsqueeze(0), hidden1)
                 out2, hidden2 = self.lstm2(out1, hidden2)
@@ -119,7 +119,7 @@ class ATPM(nn.Module):
                 out4 = self.tan_activation(self.fc2(out3))
                 outputs.append(out4.squeeze())
             else:
-                tiled_action_and_state = torch.cat((actions.squeeze()[index+1], state, actions.squeeze()[index+1], state, actions.squeeze()[index+1], state, actions.squeeze()[index+1], state), 1)
+                tiled_action_and_state = torch.cat((actions.squeeze()[index+1], state), 1)
                 action_and_tactile = torch.cat((sample_tactile, tiled_action_and_state), 1)
                 out1, hidden1 = self.lstm1(action_and_tactile.unsqueeze(0), hidden1)
                 out2, hidden2 = self.lstm2(out1, hidden2)
@@ -135,8 +135,7 @@ class ATPM(nn.Module):
 class ModelTrainer:
     def __init__(self):
         self.train_full_loader, self.valid_full_loader, self.test_full_loader = BG.load_full_data()
-#         self.full_model = FullModel()
-        self.full_model = torch.load(model_path + "model_t1_corrected")
+        self.full_model = ATPM()
         self.criterion = nn.L1Loss()
         self.criterion1 = nn.L1Loss()
         self.optimizer = optim.Adam(self.full_model.parameters(), lr=learning_rate)
@@ -153,11 +152,9 @@ class ModelTrainer:
             loss = 0.0
             losses = 0.0
             for index, batch_features in enumerate(self.train_full_loader):
-                action = batch_features[0].squeeze(-1).permute(1,0,2).to(device)
-                tactile = batch_features[1].permute(1,0,2).to(device)
-                tactilederiv1 = batch_features[2].permute(1,0,2).to(device)
-                tactilederiv2 = batch_features[3].permute(1,0,2).to(device)
-                tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action, tac_deriv1=tactilederiv1, tac_deriv2=tactilederiv2) # Step 3. Run our forward pass.
+                action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
+                tactile = batch_features[1].permute(1, 0, 2).to(device)
+                tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)  # Step 3. Run our forward pass.
                 self.optimizer.zero_grad()
                 loss = self.criterion(tactile_predictions, tactile[context_frames:])
                 loss.backward()
@@ -176,14 +173,12 @@ class ModelTrainer:
             val_loss = 0.0
             with torch.no_grad():
                 for index__, batch_features in enumerate(self.valid_full_loader):
-                    action = batch_features[0].squeeze(-1).permute(1,0,2).to(device)
-                    tactile = batch_features[1].permute(1,0,2).to(device)
-                    tactilederiv1 = batch_features[2].permute(1,0,2).to(device)
-                    tactilederiv2 = batch_features[3].permute(1,0,2).to(device)
-                    tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action, tac_deriv1=tactilederiv1, tac_deriv2=tactilederiv2) # Step 3. Run our forward pass.
+                    action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
+                    tactile = batch_features[1].permute(1, 0, 2).to(device)
+                    tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)  # Step 3. Run our forward pass.
                     ground_truth = tactile[context_frames:]
                     self.optimizer.zero_grad()
-                    val_loss = self.criterion(tactile_predictions[:,:,:48].to(device), ground_truth[:,:,:48])
+                    val_loss = self.criterion(tactile_predictions[:, :, :48].to(device), ground_truth[:, :, :48])
                     val_losses += val_loss.item()
 
             print("Validation mean loss: {:.4f}, ".format(val_losses / index__))
