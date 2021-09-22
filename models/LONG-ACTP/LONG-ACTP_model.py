@@ -129,18 +129,14 @@ class ModelTrainer:
 
     def train_full_model(self):
         plot_training_loss = []
-        plot_validation_loss = []
-        previous_val_mean_loss = 100.0
-        best_val_loss = 100.0
-        early_stop_clock = 0
         progress_bar = tqdm(range(0, epochs), total=(epochs*len(self.train_full_loader)))
         for epoch in progress_bar:
             losses = 0.0
             for index, batch_features in enumerate(self.train_full_loader):
-                action  = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
+                action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
                 tactile = torch.flatten(batch_features[1], start_dim=2).permute(1, 0, 2).to(device)
 
-                tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)  # Step 3. Run our forward pass.
+                tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)
                 self.optimizer.zero_grad()
                 loss = self.criterion(tactile_predictions, tactile[context_frames:])
                 loss.backward()
@@ -156,40 +152,6 @@ class ModelTrainer:
                 progress_bar.update()
 
             plot_training_loss.append(mean)
-
-            # Validation checking:
-            val_losses = 0.0
-            with torch.no_grad():
-                for index__, batch_features in enumerate(self.valid_full_loader):
-                    action  = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
-                    tactile = torch.flatten(batch_features[1], start_dim=2).permute(1, 0, 2).to(device)
-
-                    tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)
-                    self.optimizer.zero_grad()
-                    val_loss = self.criterion1(tactile_predictions.to(device), tactile[context_frames:])
-                    val_losses += val_loss.item()
-
-            plot_validation_loss.append(val_losses / index__)
-            print("Validation mean loss: {:.4f}, ".format(val_losses / index__))
-
-            # save the train/validation performance data
-            np.save(model_save_path + "plot_validation_loss", np.array(plot_validation_loss))
-            np.save(model_save_path + "plot_training_loss", np.array(plot_training_loss))
-
-            # Early stopping:
-            if previous_val_mean_loss < val_losses / index__:
-                early_stop_clock += 1
-                previous_val_mean_loss = val_losses / index__
-                if early_stop_clock == 4:
-                    print("Early stopping")
-                    break
-            else:
-                if best_val_loss > val_losses / index__:
-                    print("saving model")
-                    torch.save(self.full_model, model_save_path + "LONG_ACTP_model")
-                    best_val_loss = val_losses / index__
-                early_stop_clock = 0
-                previous_val_mean_loss = val_losses / index__
 
 
 if __name__ == "__main__":

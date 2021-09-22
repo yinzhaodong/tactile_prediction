@@ -188,7 +188,6 @@ class ModelTrainer:
                 if best_val_loss > val_losses / index__:
                     print("saving model")
                     torch.save(self.full_model, model_save_path + "ACTP_model")
-                    self.strongest_model = copy.deepcopy(self.full_model)
                     best_val_loss = val_losses / index__
                 early_stop_clock = 0
                 previous_val_mean_loss = val_losses / index__
