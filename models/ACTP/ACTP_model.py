@@ -14,6 +14,7 @@ from PIL import Image
 from tqdm import tqdm
 from dotenv import find_dotenv, load_dotenv
 from sklearn import preprocessing
+from datetime import datetime
 from sklearn.decomposition import PCA
 
 from string import digits
@@ -30,8 +31,14 @@ from matplotlib.animation import FuncAnimation
 from scipy.spatial.transform import Rotation as R
 from scipy.ndimage.interpolation import map_coordinates
 
-data_dir = '/home/user/Robotics/Data_sets/slip_detection/test_dataset/'
-model_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTP/saved_models/"
+
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTP/saved_models/"
+train_data_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/train_image_dataset_10c_10h/"
+scaler_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/"
+
+# unique save title:
+model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
+os.mkdir(model_save_path)
 
 seed = 42
 epochs = 100
@@ -39,6 +46,9 @@ batch_size = 32
 learning_rate = 1e-3
 context_frames = 10
 sequence_length = 20
+
+train_percentage = 0.9
+validation_percentage = 0.1
 
 torch.manual_seed(seed)
 torch.backends.cudnn.benchmark = False
@@ -48,28 +58,28 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")#  use gpu 
 
 class BatchGenerator:
     def __init__(self):
-        data_map = []
-        with open(data_dir + 'map.csv', 'r') as f:  # rb
+        self.data_map = []
+        with open(train_data_dir + 'map.csv', 'r') as f:  # rb
             reader = csv.reader(f)
             for row in reader:
-                data_map.append(row)
-
-        if len(data_map) <= 1:  # empty or only header
-            print("No file map found")
-            exit()
-
-        self.data_map = data_map
+                self.data_map.append(row)
 
     def load_full_data(self):
-        dataset_train = FullDataSet(self.data_map)
+        dataset_train = FullDataSet(self.data_map, train=True)
+        dataset_validate = FullDataSet(self.data_map, validation=True)
         transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=False)
-        return train_loader
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
+        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True)
+        self.data_map = []
+        return train_loader, validation_loader
 
 
 class FullDataSet:
-    def __init__(self, data_map):
-        self.samples = data_map[1:]
+    def __init__(self, data_map, train=False, validation=False):
+        if train:
+            self.samples = data_map[1:int((len(data_map) * train_percentage))]
+        if validation:
+            self.samples = data_map[int((len(data_map) * train_percentage)): -1]
         data_map = None
 
     def __len__(self):
@@ -77,16 +87,16 @@ class FullDataSet:
 
     def __getitem__(self, idx):
         value = self.samples[idx]
-        robot_data = np.load(data_dir + value[0])
-        tactile_data = np.load(data_dir + value[1])
+        robot_data = np.load(train_data_dir + value[0])
+        tactile_data = np.load(train_data_dir + value[1])
 
-        tactile_images = []
-        for image_name in np.load(data_dir + value[2]):
-            tactile_images.append(np.load(data_dir + image_name))
+        # tactile_images = []
+        # for image_name in np.load(data_dir + value[2]):
+        #     tactile_images.append(np.load(data_dir + image_name))
 
-        experiment_number = np.load(data_dir + value[3])
-        time_steps = np.load(data_dir + value[4])
-        return [robot_data.astype(np.float32), tactile_data.astype(np.float32), np.array(tactile_images).astype(np.float32), experiment_number, time_steps]
+        experiment_number = np.load(train_data_dir + value[3])
+        time_steps = np.load(train_data_dir + value[4])
+        return [robot_data.astype(np.float32), tactile_data.astype(np.float32), experiment_number, time_steps]
 
 
 class ATPM(nn.Module):
@@ -134,7 +144,7 @@ class ATPM(nn.Module):
 
 class ModelTrainer:
     def __init__(self):
-        self.train_full_loader, self.valid_full_loader, self.test_full_loader = BG.load_full_data()
+        self.train_full_loader, self.valid_full_loader = BG.load_full_data()
         self.full_model = ATPM()
         self.criterion = nn.L1Loss()
         self.criterion1 = nn.L1Loss()
@@ -146,14 +156,15 @@ class ModelTrainer:
         previous_val_mean_loss = 100.0
         best_val_loss = 100.0
         early_stop_clock = 0
-        progress_bar = tqdm.tqdm(range(0, epochs), total=(epochs*len(self.train_full_loader)))
+        self.progress_bar = tqdm(range(0, epochs), total=(epochs*len(self.train_full_loader)))
         mean_test = 0
-        for epoch in progress_bar:
+        for epoch in self.progress_bar:
             loss = 0.0
             losses = 0.0
             for index, batch_features in enumerate(self.train_full_loader):
-                action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
-                tactile = batch_features[1].permute(1, 0, 2).to(device)
+                action  = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
+                tactile = torch.flatten(batch_features[1], start_dim=2).permute(1, 0, 2).to(device)
+
                 tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)  # Step 3. Run our forward pass.
                 self.optimizer.zero_grad()
                 loss = self.criterion(tactile_predictions, tactile[context_frames:])
@@ -165,24 +176,33 @@ class ModelTrainer:
                     mean = losses / index
                 else:
                     mean = 0
+
                 progress_bar.set_description("epoch: {}, ".format(epoch) + "loss: {:.4f}, ".format(float(loss.item())) + "mean loss: {:.4f}, ".format(mean))
                 progress_bar.update()
+
             plot_training_loss.append(mean)
 
+            # Validation checking:
             val_losses = 0.0
             val_loss = 0.0
             with torch.no_grad():
                 for index__, batch_features in enumerate(self.valid_full_loader):
-                    action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
-                    tactile = batch_features[1].permute(1, 0, 2).to(device)
-                    tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)  # Step 3. Run our forward pass.
-                    ground_truth = tactile[context_frames:]
+                    action  = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
+                    tactile = torch.flatten(batch_features[1], start_dim=2).permute(1, 0, 2).to(device)
+
+                    tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)
                     self.optimizer.zero_grad()
-                    val_loss = self.criterion(tactile_predictions[:, :, :48].to(device), ground_truth[:, :, :48])
+                    val_loss = self.criterion1(tactile_predictions.to(device), tactile[context_frames:])
                     val_losses += val_loss.item()
 
-            print("Validation mean loss: {:.4f}, ".format(val_losses / index__))
             plot_validation_loss.append(val_losses / index__)
+            print("Validation mean loss: {:.4f}, ".format(val_losses / index__))
+
+            # save the train/validation performance data
+            np.save(model_save_path + "plot_validation_loss", np.array(plot_validation_loss))
+            np.save(model_save_path + "plot_training_loss", np.array(plot_training_loss))
+
+            # Early stopping:
             if previous_val_mean_loss < val_losses / index__:
                 early_stop_clock +=1
                 previous_val_mean_loss = val_losses / index__
@@ -192,21 +212,15 @@ class ModelTrainer:
             else:
                 if best_val_loss > val_losses / index__:
                     print("saving model")
-                    torch.save(self.full_model, model_path + "model_t1_corrected")
+                    torch.save(self.full_model, model_save_path + "ACTP_model")
                     self.strongest_model = copy.deepcopy(self.full_model)
                     best_val_loss = val_losses / index__
                 early_stop_clock = 0
                 previous_val_mean_loss = val_losses / index__
-            plt.plot(plot_training_loss, c="r", label="train loss MAE")
-            plt.plot(plot_validation_loss, c='b', label="val loss MAE")
-            plt.legend(loc="upper right")
-            plt.savefig(model_path + '/trining_plot_10steppred_new_data.png', dpi=300)
 
 
 if __name__ == "__main__":
     BG = BatchGenerator()
-    training_dataset = BG.load_full_data()
+    MT = ModelTrainer()
+    MT.train_full_model()
 
-    for index, batch_features in enumerate(training_dataset):
-
-        break
