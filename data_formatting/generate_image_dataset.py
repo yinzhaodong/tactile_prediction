@@ -127,7 +127,6 @@ if __name__  == "__main__":
 	# read all the folder names for each trial
 	files = glob.glob(train_data_dir + '/*')
 	files += glob.glob(test_data_dir + '/*')
-	path_file = []
 	index_to_save = 0
 
 	# calculate the scalar parameters:
@@ -151,6 +150,7 @@ if __name__  == "__main__":
 	# Do twice, for test & train:
 	for path, data_dir_ in zip([train_out_dir, test_out_dir], [train_data_dir, test_data_dir]):
 		files = glob.glob (data_dir_ + '/*')
+		path_file = []
 
 		for experiment_number in tqdm(range(len(files))):
 			robot_state  = np.asarray(pd.read_csv(files[experiment_number] + '/robot_state.csv', header=None))

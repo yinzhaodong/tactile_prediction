@@ -35,7 +35,7 @@ validation_percentage = 0.1
 torch.manual_seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")#  use gpu if available
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # use gpu if available
 
 
 class BatchGenerator:
@@ -134,7 +134,6 @@ class ModelTrainer:
         best_val_loss = 100.0
         early_stop_clock = 0
         progress_bar = tqdm(range(0, epochs), total=(epochs*len(self.train_full_loader)))
-        mean_test = 0
         for epoch in progress_bar:
             losses = 0.0
             for index, batch_features in enumerate(self.train_full_loader):

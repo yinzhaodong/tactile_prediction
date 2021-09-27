@@ -165,7 +165,6 @@ class ModelTrainer:
         best_val_loss = 100.0
         early_stop_clock = 0
         progress_bar = tqdm(range(0, epochs), total=(epochs*len(self.train_full_loader)))
-        mean_test = 0
         for epoch in progress_bar:
             losses = 0.0
             for index, batch_features in enumerate(self.train_full_loader):
@@ -219,7 +218,6 @@ class ModelTrainer:
                 if best_val_loss > val_losses / index__:
                     print("saving model")
                     torch.save(self.full_model, model_save_path + "ACTVP_model")
-                    self.strongest_model = copy.deepcopy(self.full_model)
                     best_val_loss = val_losses / index__
                 early_stop_clock = 0
                 previous_val_mean_loss = val_losses / index__
