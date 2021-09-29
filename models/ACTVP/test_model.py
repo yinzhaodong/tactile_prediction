@@ -9,6 +9,7 @@ from pickle import load
 from pickle import dump
 from datetime import datetime
 from torch.utils.data import Dataset
+from skimage.metrics import structural_similarity as ssim
 
 import torch
 import torchvision
@@ -186,20 +187,33 @@ class ModelTester:
             experiment = batch_features[2][:, context_frames:].cpu().detach()
             time_steps = batch_features[3][:, context_frames:].cpu().detach()
 
-            test_predictions.append([taxel_predictions, taxel_groundtruth, experiment, time_steps])
-
+            test_predictions.append([taxel_predictions, taxel_groundtruth, tactile_predictions.cpu().detach(), tactile[context_frames:].cpu().detach(), experiment, time_steps])
+            break
         return test_predictions
 
     def find_losses(self):
         losses, losses_x, losses_y, losses_z, losses_t1, losses_t5, losses_t10 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-        for pred, label, exp, ts in self.test_predictions:
-            losses += self.criterion(pred, label).item()
-            losses_x += self.criterion(pred, label[:, :, 0:16]).item()
-            losses_y += self.criterion(pred, label[:, :, 16:32]).item()
-            losses_z += self.criterion(pred, label[:, :, 32:48]).item()
-            losses_t1 += self.criterion(pred, label[:, 0, :]).item()
-            losses_t5 += self.criterion(pred, label[:, 4, :]).item()
-            losses_t10 += self.criterion(pred, label[:, 9, :]).item()
+        for pred_taxel, label_taxel, pred_image, label_image, exp, ts in self.test_predictions:
+            losses += self.criterion(torch.tensor(pred_taxel), torch.tensor(label_taxel)).item()
+            losses_x += self.criterion(torch.tensor(pred_taxel[:, :, 0:16]), torch.tensor(label_taxel[:, :, 0:16])).item()
+            losses_y += self.criterion(torch.tensor(pred_taxel[:, :, 16:32]), torch.tensor(label_taxel[:, :, 16:32])).item()
+            losses_z += self.criterion(torch.tensor(pred_taxel[:, :, 32:48]), torch.tensor(label_taxel[:, :, 32:48])).item()
+            losses_t1 += self.criterion(torch.tensor(pred_taxel[:, 0, :]), torch.tensor(label_taxel[:, 0, :])).item()
+            losses_t5 += self.criterion(torch.tensor(pred_taxel[:, 4, :]), torch.tensor(label_taxel[:, 4, :])).item()
+            losses_t10 += self.criterion(torch.tensor(pred_taxel[:, 9, :]), torch.tensor(label_taxel[:, 9, :])).item()
+
+            ssim_mean = []
+            for time_step in range(pred_image.shape[0]):
+                ssim_mean.append(np.mean([ssim(label_image[time_step, i, :,:,:],
+                                               pred_image[time_step, i, :,:,:],
+                                               data_range=pred_image[time_step, i, :, :, :].max() - pred_image[time_step, i, :, :, :].min())
+                                          for i in range(pred_image.shape[1])]))
+
+            ssim_overall += np.mean(ssim_mean)
+            ssim_t1 += np.mean(ssim_mean)
+            ssim_t5 += np.mean(ssim_mean)
+            ssim_t10 += np.mean(ssim_mean)
+
 
         mean = losses / len(self.test_predictions)
         mean_x = losses_x / len(self.test_predictions)
@@ -208,6 +222,13 @@ class ModelTester:
         mean_t1 = losses_t1 / len(self.test_predictions)
         mean_t5 = losses_t5 / len(self.test_predictions)
         mean_t10 = losses_t10 / len(self.test_predictions)
+
+        ssim_overall = ssim_overall  / len(self.test_predictions)
+        ssim_t1 = ssim_t1  / len(self.test_predictions)
+        ssim_t5 = ssim_t5 / len(self.test_predictions)
+        ssim_t10 = ssim_t10 / len(self.test_predictions)
+
+
         np.save(model_save_path + "test_losses", np.array([["L1 loss: ", mean], ["L1 loss x: ", mean_x], ["L1 loss y: ", mean_y], ["L1 loss z: ", mean_z],
                                                                                 ["L1 loss t1: ", mean_t1], ["L1 loss t5: ", mean_t5], ["L1 loss t10: ", mean_t10]]))
 
