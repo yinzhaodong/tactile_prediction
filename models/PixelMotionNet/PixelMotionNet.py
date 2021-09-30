@@ -111,9 +111,9 @@ class ConvLSTMCell(nn.Module):
                 torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device).to(device))
 
 
-class ACTVP(nn.Module):
+class PixelMotionNet(nn.Module):
     def __init__(self):
-        super(ACTVP, self).__init__()
+        super(PixelMotionNet, self).__init__()
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1).cuda()
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1).cuda()
         self.convlstm1 = ConvLSTMCell(input_dim=64, hidden_dim=32, kernel_size=(3, 3), bias=True).cuda()
@@ -190,7 +190,7 @@ class ACTVP(nn.Module):
 class ModelTrainer:
     def __init__(self):
         self.train_full_loader, self.valid_full_loader = BG.load_full_data()
-        self.full_model = ACTVP()
+        self.full_model = PixelMotionNet()
         self.criterion = nn.L1Loss()
         self.criterion1 = nn.L1Loss()
         self.optimizer = optim.Adam(self.full_model.parameters(), lr=learning_rate)
@@ -254,7 +254,7 @@ class ModelTrainer:
             else:
                 if best_val_loss > val_losses / index__:
                     print("saving model")
-                    torch.save(self.full_model, model_save_path + "ACTVP_model")
+                    torch.save(self.full_model, model_save_path + "PixelMotionNet_model")
                     best_val_loss = val_losses / index__
                 early_stop_clock = 0
                 previous_val_mean_loss = val_losses / index__
