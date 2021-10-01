@@ -56,27 +56,17 @@ class decoder(nn.Module):
         super(decoder, self).__init__()
         self.dim = dim
         nf = 64
-        self.upc1 = nn.Sequential(
-                # input is Z, going into a convolution
-                nn.ConvTranspose2d(dim, nf * 8, 4, 1, 0),
-                nn.BatchNorm2d(nf * 8),
-                nn.LeakyReLU(0.2, inplace=True)
-                )
-        # state size. (nf*2) x 4 x 4
-        self.upc2 = dcgan_upconv(nf * 6 * 2, nf * 2)
         # state size. (nf*2) x 8 x 8
-        self.upc3 = dcgan_upconv(nf * 2 * 2, nf)
+        self.upc1 = dcgan_upconv(nf * 2 * 2, nf)
         # state size. (nf*2) x 16 x 16
-        self.upc4 = nn.Sequential(
-                nn.ConvTranspose2d(nf * 2, out_channels, 4, 2, 1),
-                nn.Sigmoid()
-                # state size. (nc) x 32 x 32
-                )
+        self.upc2 = dcgan_upconv(nf * 2, nf)
+        # state size. (nf*2) x 32 x 32
+        self.upc3 = nn.Conv2d(in_channels=nf, out_channels=out_channels, kernel_size=5, stride=1, padding=2).cuda()
+        self.tanh = nn.Tanh()
 
     def forward(self, input):
         vec, skip = input
-        d1 = self.upc1(vec.view(-1, self.dim, 1, 1))
-        d2 = self.upc2(torch.cat([d1, skip[2]], 1))
-        d3 = self.upc3(torch.cat([d2, skip[1]], 1))
-        output = self.upc4(torch.cat([d3, skip[0]], 1))
+        d1 = self.upc1(torch.cat([vec, skip[1]], 1))
+        d2 = self.upc2(torch.cat([d1, skip[0]], 1))
+        output = self.tanh(self.upc3(d2))
         return output

@@ -42,7 +42,7 @@ dataset='smmnist'
 n_past=10
 n_future=10
 n_eval=30
-rnn_size=256
+rnn_size=128
 prior_rnn_layers=1
 posterior_rnn_layers=1
 predictor_rnn_layers=2
@@ -117,12 +117,10 @@ class ModelTrainer:
         self.optimizer = optim.Adam
 
         import models.lstm as lstm_models
-        self.frame_predictor = lstm_models.lstm(g_dim + z_dim, g_dim, rnn_size, predictor_rnn_layers, batch_size)
+        self.frame_predictor = lstm_models.convlstm(g_dim + z_dim, g_dim, rnn_size, predictor_rnn_layers, batch_size)
         self.posterior = lstm_models.gaussian_lstm(g_dim, z_dim, rnn_size, posterior_rnn_layers, batch_size)
         self.prior = lstm_models.gaussian_lstm(g_dim, z_dim, rnn_size, prior_rnn_layers, batch_size)
         self.frame_predictor.apply(utils.init_weights)
-        self.posterior.apply(utils.init_weights)
-        self.prior.apply(utils.init_weights)
 
         import models.dcgan_32 as model
         self.encoder = model.encoder(g_dim, channels, out_channels)
@@ -173,7 +171,7 @@ class ModelTrainer:
                 h = h[0]
             z_t, mu, logvar = self.posterior(h_target)
             _, mu_p, logvar_p = self.prior(h)
-            h_pred = self.frame_predictor(torch.cat([h, z_t], 1))
+            h_pred = self.frame_predictor(torch.cat([h, torch.cat(8*[torch.cat(8*[z_t.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3)], 1))
             x_pred = self.decoder([h_pred, skip])
             mae += self.mae_criterion(x_pred, x[i][:, 12:, :, :])
             kld += self.kl_criterion(mu, logvar, mu_p, logvar_p)
@@ -227,7 +225,7 @@ class ModelTrainer:
 
                     progress_bar.set_description("epoch: {}, ".format(epoch) + "MAE: {:.4f}, ".format(float(mae.item())) + "kld: {:.4f}, ".format(float(kld.item())) + "mean MAE: {:.4f}, ".format(mean_mae)  + "mean kld: {:.4f}, ".format(mean_kld))
                     progress_bar.update()
-
+                break
             plot_training_loss.append([mean_mae, mean_kld])
 
             # Validation checking:
@@ -241,7 +239,7 @@ class ModelTrainer:
                         val_mae, val_kld = self.train(tactiles=tactile, actions=action)
                         val_mae_losses += val_mae.item()
                         val_kld_losses += val_kld.item()
-
+                break
             plot_validation_loss.append([val_mae_losses / index__, val_kld_losses / index__])
             print("Validation mae: {:.4f}, ".format(val_mae_losses / index__) +  " || Validation kld: {:.4f}, ".format(val_kld_losses / index__))
 
