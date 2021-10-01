@@ -16,7 +16,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/SVG/saved_models/"
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/SVG-ConvLSTM/saved_models/"
 train_data_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/train_image_dataset_10c_10h/"
 scaler_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/"
 
@@ -47,7 +47,7 @@ prior_rnn_layers=1
 posterior_rnn_layers=1
 predictor_rnn_layers=2
 z_dim=10  # number of latent variables
-g_dim=32
+g_dim=128
 beta=0.0001
 data_threads=5
 num_digits=2
@@ -147,8 +147,8 @@ class ModelTrainer:
 
     def train(self, tactiles, actions):
         states = actions[0, :, :]
-        state_action = torch.cat((torch.cat(20*[states.unsqueeze (0)], 0), actions), 2)
-        state_action_image = torch.cat(32*[torch.cat (32*[state_action.unsqueeze(3)], axis=3).unsqueeze(4)], axis=4)
+        state_action = torch.cat((torch.cat(20*[states.unsqueeze(0)], 0), actions), 2)
+        state_action_image = torch.cat(32*[torch.cat(32*[state_action.unsqueeze(3)], axis=3).unsqueeze(4)], axis=4)
         x = torch.cat((state_action_image, tactiles), 2)
 
         self.frame_predictor.zero_grad()
@@ -175,7 +175,7 @@ class ModelTrainer:
             _, mu_p, logvar_p = self.prior(h)
             h_pred = self.frame_predictor(torch.cat([h, z_t], 1))
             x_pred = self.decoder([h_pred, skip])
-            mae += self.mae_criterion(x_pred, x[i][:,12:, :,:])
+            mae += self.mae_criterion(x_pred, x[i][:, 12:, :, :])
             kld += self.kl_criterion(mu, logvar, mu_p, logvar_p)
 
         loss = mae + kld * beta
@@ -196,11 +196,11 @@ class ModelTrainer:
         return kld.sum() / batch_size
 
     def train_full_model(self):
-        self.frame_predictor.train ()
-        self.posterior.train ()
-        self.prior.train ()
-        self.encoder.train ()
-        self.decoder.train ()
+        self.frame_predictor.train()
+        self.posterior.train()
+        self.prior.train()
+        self.encoder.train()
+        self.decoder.train()
 
         plot_training_loss = []
         plot_validation_loss = []
@@ -236,9 +236,9 @@ class ModelTrainer:
             with torch.no_grad():
                 for index__, batch_features in enumerate(self.valid_full_loader):
                     if batch_features[1].shape[0] == 32:
-                        tactile = batch_features[1].permute (1, 0, 4, 3, 2).to (device)
-                        action = batch_features[0].squeeze (-1).permute (1, 0, 2).to (device)
-                        val_mae, val_kld = self.train (tactiles=tactile, actions=action)
+                        tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
+                        action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
+                        val_mae, val_kld = self.train(tactiles=tactile, actions=action)
                         val_mae_losses += val_mae.item()
                         val_kld_losses += val_kld.item()
 
@@ -260,8 +260,8 @@ class ModelTrainer:
                 if best_val_loss > val_mae_losses / index__:
                     print("saving model")
                     # save the model
-                    torch.save ({'encoder': self.encoder, 'decoder': self.decoder, 'frame_predictor': self.frame_predictor,
-                                'posterior': self.posterior, 'prior': self.prior, 'features': features}, model_save_path + "SVG_model")
+                    torch.save({'encoder': self.encoder, 'decoder': self.decoder, 'frame_predictor': self.frame_predictor,
+                                'posterior': self.posterior, 'prior': self.prior, 'features': features}, model_save_path + "SVG-ConvLSTM")
 
                     best_val_loss = val_mae_losses / index__
                 early_stop_clock = 0
