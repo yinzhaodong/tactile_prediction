@@ -143,6 +143,41 @@ class ModelTrainer:
         self.decoder.cuda()
         self.mae_criterion.cuda()
 
+    def test(self, tactiles, actions):
+        states = actions[0, :, :]
+        state_action = torch.cat((torch.cat(20*[states.unsqueeze(0)], 0), actions), 2)
+        state_action_image = torch.cat(32*[torch.cat(32*[state_action.unsqueeze(3)], axis=3).unsqueeze(4)], axis=4)
+        x = torch.cat((state_action_image, tactiles), 2)
+
+        self.frame_predictor.zero_grad()
+        self.posterior.zero_grad()
+        self.prior.zero_grad()
+        self.encoder.zero_grad()
+        self.decoder.zero_grad()
+
+        # initialize the hidden state.
+        self.frame_predictor.hidden = self.frame_predictor.init_hidden()
+        self.posterior.hidden = self.posterior.init_hidden()
+        self.prior.hidden = self.prior.init_hidden()
+
+        mae = 0
+        kld = 0
+        for i in range(1, n_past + n_future):
+            h = self.encoder(x[i - 1])
+            h_target = self.encoder(x[i])[0]
+            if last_frame_skip or i < n_past:
+                h, skip = h
+            else:
+                h = h[0]
+            z_t, mu, logvar = self.posterior(h_target)
+            _, mu_p, logvar_p = self.prior(h)
+            h_pred = self.frame_predictor(torch.cat([h, torch.cat(8*[torch.cat(8*[z_t.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3)], 1))
+            x_pred = self.decoder([h_pred, skip])
+            mae += self.mae_criterion(x_pred, x[i][:, 12:, :, :])
+            kld += self.kl_criterion(mu, logvar, mu_p, logvar_p)
+
+        return mae.data.cpu().numpy() /(n_past + n_future), kld.data.cpu().numpy() /(n_future + n_past)
+
     def train(self, tactiles, actions):
         states = actions[0, :, :]
         state_action = torch.cat((torch.cat(20*[states.unsqueeze(0)], 0), actions), 2)
@@ -225,7 +260,7 @@ class ModelTrainer:
 
                     progress_bar.set_description("epoch: {}, ".format(epoch) + "MAE: {:.4f}, ".format(float(mae.item())) + "kld: {:.4f}, ".format(float(kld.item())) + "mean MAE: {:.4f}, ".format(mean_mae)  + "mean kld: {:.4f}, ".format(mean_kld))
                     progress_bar.update()
-                break
+
             plot_training_loss.append([mean_mae, mean_kld])
 
             # Validation checking:
@@ -239,7 +274,7 @@ class ModelTrainer:
                         val_mae, val_kld = self.train(tactiles=tactile, actions=action)
                         val_mae_losses += val_mae.item()
                         val_kld_losses += val_kld.item()
-                break
+
             plot_validation_loss.append([val_mae_losses / index__, val_kld_losses / index__])
             print("Validation mae: {:.4f}, ".format(val_mae_losses / index__) +  " || Validation kld: {:.4f}, ".format(val_kld_losses / index__))
 
