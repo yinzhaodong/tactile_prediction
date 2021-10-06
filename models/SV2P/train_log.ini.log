@@ -1,0 +1,61 @@
+[dataset]
+dataset_name=MovingMNIST
+indices=(range(8000), range(8000, 9950), range(9950, 10000))
+in_channels=1
+cond_channels=0
+
+[train]
+n_masks=2
+batch_size=16
+lr=0.001
+max_epoch=10
+seqlen=20
+criterion_name=DSSIM
+
+[train_device]
+device=cudaINFO|2021-10-04 14:59:14,622|train.trainlib.IniFunctionCaller.call|Parsed args: (1, 0, 2, 'MovingMNIST', (range(0, 8000), range(8000, 9950), range(9950, 10000)), 16, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 14:59:14,622|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:00:41,681|train.trainlib.IniFunctionCaller.call|Parsed args: (1, 0, 2, 'MovingMNIST', (range(0, 8000), range(8000, 9950), range(9950, 10000)), 16, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:00:41,681|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:08:32,706|train.trainlib.IniFunctionCaller.call|Parsed args: (1, 0, 2, 'TactileSingle', (range(0, 8000), range(8000, 9950), range(9950, 10000)), 16, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:08:32,706|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:09:09,967|train.trainlib.IniFunctionCaller.call|Parsed args: (1, 0, 2, 'TactileSingle', (range(0, 8000), range(8000, 9950), range(9950, 10000)), 16, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:09:09,967|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:10:01,156|train.trainlib.IniFunctionCaller.call|Parsed args: (1, 0, 2, 'TactileSingle', (range(0, 8000), range(8000, 9950), range(9950, 10000)), 16, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:10:01,156|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:14:02,748|train.trainlib.IniFunctionCaller.call|Parsed args: (1, 0, 2, 'TactileSingle', (0.8, 0.9), 16, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:14:02,748|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:15:01,646|train.trainlib.IniFunctionCaller.call|Parsed args: (1, 0, 2, 'TactileSingle', (0.8, 0.9), 16, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:15:01,646|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:15:47,373|train.trainlib.IniFunctionCaller.call|Parsed args: (1, 0, 2, 'TactileSingle', (0.8, 0.9), 16, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:15:47,373|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:15:50,012|root|basedir=runs-train_log
+ERROR|2021-10-04 15:15:50,020|train.trainlib.CDNATrainer.run|Exception raised (of type AttributeError): 'CDNATrainer' object has no attribute 'sam_train'
+INFO|2021-10-04 15:18:03,726|train.trainlib.IniFunctionCaller.call|Parsed args: (1, 0, 2, 'TactileSingle', (0.8, 0.9), 16, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:18:03,727|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:18:36,012|root|basedir=runs-train_log
+ERROR|2021-10-04 15:19:28,422|train.trainlib.CDNATrainer.run|Exception raised (of type AttributeError): 'CDNATrainer' object has no attribute 'sam_train'
+INFO|2021-10-04 15:20:33,595|train.trainlib.IniFunctionCaller.call|Parsed args: (1, 0, 2, 'TactileSingle', (0.8, 0.9), 16, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:20:33,595|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:20:36,108|root|basedir=runs-train_log
+ERROR|2021-10-04 15:21:23,113|train.trainlib.CDNATrainer.run|Exception raised (of type AttributeError): 'CDNATrainer' object has no attribute 'sam_train'
+INFO|2021-10-04 15:39:02,486|train.trainlib.IniFunctionCaller.call|Parsed args: (3, 0, 10, 'TactileSingle', (0.8, 0.9), 32, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:39:02,487|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:39:04,981|root|basedir=runs-train_log
+ERROR|2021-10-04 15:40:27,610|train.trainlib.CDNATrainer.run|Exception raised (of type AttributeError): 'CDNATrainer' object has no attribute 'sam_train'
+INFO|2021-10-04 15:40:35,473|train.trainlib.IniFunctionCaller.call|Parsed args: (3, 0, 10, 'TactileSingle', (0.8, 0.9), 32, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:40:35,474|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:40:37,911|root|basedir=runs-train_log
+ERROR|2021-10-04 15:40:37,920|train.trainlib.CDNATrainer.run|Exception raised (of type AttributeError): 'CDNATrainer' object has no attribute 'sam_train'
+INFO|2021-10-04 15:49:06,547|train.trainlib.IniFunctionCaller.call|Parsed args: (3, 0, 10, 'TactileSingle', (0.8, 0.9), 32, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:49:06,547|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:49:08,966|root|basedir=runs-train_log
+ERROR|2021-10-04 15:49:08,975|train.trainlib.CDNATrainer.run|Exception raised (of type AttributeError): 'CDNATrainer' object has no attribute 'sam_train'
+INFO|2021-10-04 15:49:23,725|train.trainlib.IniFunctionCaller.call|Parsed args: (3, 0, 10, 'TactileSingle', (0.8, 0.9), 32, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-04 15:49:23,726|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-04 15:49:26,174|root|basedir=runs-train_log
+ERROR|2021-10-04 15:49:26,240|train.trainlib.CDNATrainer.run|Exception raised (of type TypeError): object of type 'float' has no len()
+INFO|2021-10-05 10:15:46,401|train.trainlib.IniFunctionCaller.call|Parsed args: (3, 0, 10, 'TactileSingle', (0.8, 0.9), 32, 0.001, 10, 20, 'DSSIM', 0.1, 0.1, True, True, 'cuda')
+INFO|2021-10-05 10:15:46,402|train.trainlib.IniFunctionCaller.call|Parsed kwargs: OrderedDict()
+INFO|2021-10-05 10:15:49,671|root|basedir=runs-train_log
+ERROR|2021-10-05 10:15:56,584|train.trainlib.CDNATrainer.run|Exception raised (of type KeyboardInterrupt): 
