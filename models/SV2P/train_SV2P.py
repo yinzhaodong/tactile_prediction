@@ -25,15 +25,16 @@ scaler_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/"
 
 # unique save title:
 model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
-# os.mkdir(model_save_path)
+os.mkdir(model_save_path)
 
 lr = 0.001
 seed = 42
 mfreg = 0.1
 seqlen = 20
 krireg = 0.1
+klreg_max = 0.1
 n_masks = 10
-indices =(0.9, 0.1)
+indices = (0.9, 0.1)
 max_epoch = 100
 batch_size = 8
 in_channels = 3
@@ -44,10 +45,23 @@ train_percentage = 0.9
 # latent_std_min = 0.005
 validation_percentage = 0.1
 
+linear_increase = 20000
+num_iterations_1st_stage = 100000
+num_iterations_2nd_stage = 50000
+num_iterations_3rd_stage = 50000
+
+hp = np.array([lr, seed, seqlen, mfreg, krireg, klreg_max, n_masks, max_epoch,
+               batch_size, in_channels, state_action_channels, context_frames,
+               latent_channels, train_percentage, validation_percentage,
+               num_iterations_1st_stage, num_iterations_2nd_stage, num_iterations_3rd_stage, linear_increase])
+np.save(model_save_path + "HyperParameters", hp)
+
+linear_step = klreg_max / linear_increase
+
 device = "cuda"
 warm_start = False
 dataset_name = "TactileSingle"
-criterion_name = "DSSIM"
+criterion_name = "L2"
 scheduled_sampling_k = False
 
 torch.manual_seed(seed)
@@ -114,26 +128,71 @@ class CDNATrainer():
         self.kernel_criterion = RotationInvarianceLoss().to(device)
 
     def run(self):
-        for self.training_stage in ["generative_network", "infurence_network", "divergence_reduction"]:
+        plot_training_loss = []
+        plot_validation_loss = []
+        for index_stage, self.training_stage in enumerate(["generative_network", "infurence_network", "divergence_reduction"]):
+            num_iterations = 0
+            self.klreg = 0
+            end_of_stage = False
             progress_bar = tqdm(range(0, max_epoch), total=(max_epoch*len(self.train_full_loader)))
             for epoch in progress_bar:
+                total_losses = 0.0
+                total_losses_val = 0.0
+                best_val_loss = 100.0
+
                 # training:
                 self.net.train()
                 self.latent_model.train()
+
                 for index, batch_features in enumerate(self.train_full_loader):
+                    num_iterations += 1
+                    if index_stage == 0 and num_iterations > num_iterations_1st_stage:
+                        end_of_stage = True
+                        break
+                    if index_stage == 1 and num_iterations > num_iterations_2nd_stage:
+                        end_of_stage = True
+                        break
+                    if index_stage == 2:
+                        self.klreg = linear_step * num_iterations
+                        if self.klreg > klreg_max:
+                            self.klreg = klreg_max
+
                     tactile = torch.zeros([20,batch_size,3,64,64]).to(device)  # batch_features[1].permute(1, 0, 4, 3, 2).to(device)
                     action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
-                    loss, kernloss, maskloss, total_loss = self.generative_network_fw(tactile, action)
-                    break
-                # validation:
+                    loss, kernloss, maskloss, total_loss = self.training_pass(tactile, action)
+                    total_losses += total_loss
+                    sequences = index
+
+                    progress_bar.set_description("epoch: {}, ".format(epoch) + "loss: {:.5f}, ".format(float(total_loss)) + "mean loss: {:.5f}, ".format(total_losses / (index + 1)))
+                    progress_bar.update()
+
+                plot_training_loss.append(total_losses / sequences)
+
                 for index, batch_features in enumerate(self.valid_full_loader):
                     tactile = torch.zeros([20,batch_size,3,64,64]).to(device)  # batch_features[1].permute(1, 0, 4, 3, 2).to(device)
                     action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
-                    loss, kernloss, maskloss, total_loss = self.generative_network_fw(tactile, action, validation=True)
-                    break
-                break
+                    loss, kernloss, maskloss, total_loss = self.training_pass(tactile, action, validation=True)
+                    total_losses_val += total_loss
+                    sequences = index
+                total_losses_val_mean = total_losses_val / sequences
+                plot_validation_loss.append(total_losses_val_mean)
 
-    def infurence_network_fw(self, tactiles, actions, validation=False):
+                plot_validation_loss.append(total_losses_val_mean)
+                print("Validation mean loss: {:.4f}, ".format(total_losses_val_mean))
+
+                # save the train/validation performance data
+                np.save(model_save_path + "plot_validation_loss", np.array(plot_validation_loss))
+                np.save(model_save_path + "plot_training_loss", np.array(plot_training_loss))
+
+                if best_val_loss > total_losses_val_mean:
+                    print("saving model")
+                    torch.save(self.full_model, model_save_path + "SV2P_model")
+                    best_val_loss = total_losses_val_mean
+
+                if end_of_stage == True:
+                    break
+
+    def training_pass(self, tactiles, actions, validation=False):
         hidden = None
         outputs = []
         state = actions[0].to(device)
@@ -142,7 +201,8 @@ class CDNATrainer():
         samples = torch.normal(0.0, 1.0, size=(batch_size, latent_channels, 8, 8)).to(device)
         if self.training_stage == "generative_network":
             prior_sample = samples
-        elif self.training_stage == "infurence_network":
+            pMean, pSTD = None, None
+        elif self.training_stage == "infurence_network" or "divergence_reduction":
             pMean, pSTD = self.latent_model(frames=tactiles)
             prior_sample = pMean + torch.exp(pSTD / 2.0) * samples
 
@@ -175,12 +235,14 @@ class CDNATrainer():
         loss = 0.0
         kernloss = 0.0
         maskloss = 0.0
+        KLD_loss = 0.0
         for prediction_t, target_t in zip(outputs, tactiles[context_frames:]):
-            loss_t, kernloss_t, maskloss_t = self.__compute_loss(prediction_t, cdna_kerns_t, masks_t, target_t)
+            loss_t, kernloss_t, maskloss_t, KLD_loss_t = self.__compute_loss(prediction_t, cdna_kerns_t, masks_t, target_t, pSTD, pMean)
             loss += loss_t
             kernloss += kernloss_t
             maskloss += maskloss_t
-        total_loss =(loss + kernloss + maskloss) / context_frames
+            KLD_loss += KLD_loss_t
+        total_loss =(loss + kernloss + maskloss + KLD_loss) / context_frames
 
         if not validation:
             self.optimizer.zero_grad()
@@ -192,77 +254,20 @@ class CDNATrainer():
                maskloss.detach().cpu().item() / seqlen,
                total_loss.detach().cpu().item())
 
-    def training_pass(self, tactiles, actions, validation=False, stage=""):
-        hidden = None
-        outputs = []
-        state = actions[0].to(device)
-        prior_sample = torch.normal(0.0, 1.0, size=(batch_size, latent_channels, 8, 8)).to(device)
-
-        if validation:
-            with torch.no_grad():
-                for index,(sample_tactile, sample_action) in enumerate(zip(tactiles[0:-1].squeeze(), actions[1:].squeeze())):
-                    state_action = torch.cat((state, sample_action), 1)
-                    tsa = torch.cat(8*[torch.cat(8*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3)
-                    tsap = torch.cat([prior_sample, tsa], axis=1)
-                    if index > context_frames-1:
-                        predictions_t, hidden, cdna_kerns_t, masks_t = self.net(predictions_t, conditions=tsap, hidden_states=hidden)
-                        outputs.append(predictions_t)
-                    else:
-                        predictions_t, hidden, cdna_kerns_t, masks_t = self.net(sample_tactile, conditions=tsap, hidden_states=hidden)
-                        last_output = predictions_t
-        else:
-            for index,(sample_tactile, sample_action) in enumerate(zip(tactiles[0:-1].squeeze(), actions[1:].squeeze())):
-                state_action = torch.cat((state, sample_action), 1)
-                tsa = torch.cat(8*[torch.cat(8*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3)
-                tsap = torch.cat([prior_sample, tsa], axis=1)
-                if index > context_frames - 1:
-                    predictions_t, hidden, cdna_kerns_t, masks_t = self.net(predictions_t, conditions=tsap, hidden_states=hidden)
-                    outputs.append(predictions_t)
-                else:
-                    predictions_t, hidden, cdna_kerns_t, masks_t = self.net(sample_tactile, conditions=tsap, hidden_states=hidden)
-                    last_output = predictions_t
-
-        outputs = [last_output] + outputs
-
-        loss = 0.0
-        kernloss = 0.0
-        maskloss = 0.0
-        for prediction_t, target_t in zip(outputs, tactiles[context_frames:]):
-            loss_t, kernloss_t, maskloss_t = self.__compute_loss(prediction_t, cdna_kerns_t, masks_t, target_t)
-            loss += loss_t
-            kernloss += kernloss_t
-            maskloss += maskloss_t
-        total_loss =(loss + kernloss + maskloss) / context_frames
-
-        if not validation:
-            self.optimizer.zero_grad()
-            total_loss.backward()
-            self.optimizer.step()
-
-        return (loss.detach().cpu().item() / seqlen,
-                 kernloss.detach().cpu().item() / seqlen,
-                 maskloss.detach().cpu().item() / seqlen,
-                 total_loss.detach().cpu().item())
-
-    def __compute_loss(self, predictions_t, cdna_kerns_t, masks_t, targets_t):
+    def __compute_loss(self, predictions_t, cdna_kerns_t, masks_t, targets_t, pSTD, pMean):
         loss_t = self.criterion(predictions_t, targets_t)
+        prior_loss = self.klreg * self.kl_divergence(pMean, pSTD)
         kernloss_t = krireg * self.kernel_criterion(cdna_kerns_t)
         maskloss_t = mfreg * masks_t[:, 1:].reshape(-1, masks_t.size(-2) * masks_t.size(-1)).abs().sum(1).mean()
-        return loss_t, kernloss_t, maskloss_t
+        return loss_t, kernloss_t, maskloss_t, prior_loss
 
-    def kl_divergence(mu, log_sigma):
+    def kl_divergence(self, mu, log_sigma):
         """KL divergence of diagonal gaussian N(mu,exp(log_sigma)) and N(0,1).
-        Args:
-            mu: mu parameter of the distribution.
-            log_sigma: log(sigma) parameter of the distribution.
-        Returns:
-            the KL loss.
         """
-        return -.5 * tf.reduce_sum(1. + log_sigma - tf.square(mu) - tf.exp(log_sigma), axis=1)
-
-    def __calculate_loss(self, predictions, labels):
-        loss_t = self.criterion(predictions_t, targets_t)
-        return loss_t
+        if mu == None:
+            return 0.0
+        else:
+            return torch.mean(-.5 * torch.sum(1. + log_sigma - torch.square(mu) - torch.exp(log_sigma), axis=1))
 
 if __name__ == '__main__':
     BG = BatchGenerator()
