@@ -26,11 +26,11 @@ from scipy.spatial.transform import Rotation as R
 from scipy.ndimage.interpolation import map_coordinates
 
 # Hyperparameters:
-train_data_dir = '/home/user/Robotics/Data_sets/slip_detection/will_dataset/will_data_collection/train_dataset_001/'
-test_data_dir = '/home/user/Robotics/Data_sets/slip_detection/will_dataset/will_data_collection/test_dataset_001/'
-train_out_dir = '/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/train_image_dataset_10c_10h/'
-test_out_dir = '/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/test_image_dataset_10c_10h/'
-scaler_out_dir = '/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/'
+train_data_dir = '/home/user/Robotics/Data_sets/data_collection_preliminary/train/'
+test_data_dir  = '/home/user/Robotics/Data_sets/data_collection_preliminary/test/'
+train_out_dir  = '/home/user/Robotics/Data_sets/data_collection_preliminary/train_image_dataset_10c_10h/'
+test_out_dir   = '/home/user/Robotics/Data_sets/data_collection_preliminary/test_image_dataset_10c_10h/'
+scaler_out_dir = '/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/'
 
 context_length = 10
 horrizon_length = 10
@@ -52,16 +52,16 @@ def create_image(tactile_x, tactile_y, tactile_z):
 def calculate_scale_parameters():
 	tactile_data_final = []
 	robot_task_space_final = []
-	for experiment_number in tqdm (range (len (files))):
+	for experiment_number in tqdm(range(len(files))):
 		robot_task_space = []
 		tactile_data = []
-		robot_state = np.asarray (pd.read_csv (files[experiment_number] + '/robot_state.csv', header=None))
-		xela_sensor1 = np.asarray (pd.read_csv (files[experiment_number] + '/xela_sensor1.csv', header=None))
+		robot_state = np.asarray(pd.read_csv(files[experiment_number] + '/robot_state.csv', header=None))
+		xela_sensor1 = np.asarray(pd.read_csv(files[experiment_number] + '/xela_sensor1.csv', header=None))
 
 		####################################### Robot Data ###########################################
 		for state in robot_state[1:]:
-			ee_orientation = R.from_quat ([state[-4], state[-3], state[-2], state[-1]]).as_euler ('zyx', degrees=True)
-			robot_task_space.append (
+			ee_orientation = R.from_quat([state[-4], state[-3], state[-2], state[-1]]).as_euler('zyx', degrees=True)
+			robot_task_space.append(
 				[state[-7], state[-6], state[-5], ee_orientation[0], ee_orientation[1], ee_orientation[2]])
 		robot_task_space = np.asarray(robot_task_space).astype(float)
 
@@ -71,7 +71,7 @@ def calculate_scale_parameters():
 			min_max.append([ min(np.array(robot_task_space[:,feature])), max(np.array(robot_task_space)[:,feature]) ])
 		for time_step in range(robot_task_space.shape[0]):
 			for feature in range(6):
-				robot_task_space[time_step][feature] = (robot_task_space[time_step][feature] - min_max[feature][0]) / (min_max[feature][1] - min_max[feature][0])
+				robot_task_space[time_step][feature] =(robot_task_space[time_step][feature] - min_max[feature][0]) /(min_max[feature][1] - min_max[feature][0])
 
 		####################################### Xela Sensor Data ###########################################
 		for sample in xela_sensor1[1:]:
@@ -97,8 +97,8 @@ def calculate_scale_parameters():
 		for time_step in range(tactile_data.shape[0]):
 			for feature in range(3):
 				tactile_sample_test = [offset + real_value for offset, real_value in zip(tactile_offsets[feature], tactile_data[time_step][feature])]
-				for i in range (tactile_data.shape[2]):
-					tactile_data[time_step][feature][i] = (tactile_sample_test[i] - min_max_tactile[feature][0]) / (min_max_tactile[feature][1] - min_max_tactile[feature][0])
+				for i in range(tactile_data.shape[2]):
+					tactile_data[time_step][feature][i] =(tactile_sample_test[i] - min_max_tactile[feature][0]) /(min_max_tactile[feature][1] - min_max_tactile[feature][0])
 
 		tactile_data_final += list(tactile_data)
 		robot_task_space_final += list(robot_task_space)
@@ -108,17 +108,17 @@ def calculate_scale_parameters():
 	robot_task_space_final = np.array(robot_task_space_final)
 
 	# tactile scalars: standard then min max:
-	tactile_standard_scaler = [preprocessing.StandardScaler().fit (tactile_data_final[:,0]),
-							   preprocessing.StandardScaler().fit (tactile_data_final[:,1]),
-							   preprocessing.StandardScaler().fit (tactile_data_final[:,2])]
-	tactile_min_max_scalar = [preprocessing.MinMaxScaler (feature_range=(0, 1)).fit (tactile_standard_scaler[0].transform(tactile_data_final[:,0])),
-							  preprocessing.MinMaxScaler (feature_range=(0, 1)).fit (tactile_standard_scaler[1].transform(tactile_data_final[:,1])),
-							  preprocessing.MinMaxScaler (feature_range=(0, 1)).fit (tactile_standard_scaler[2].transform(tactile_data_final[:,2]))]
+	tactile_standard_scaler = [preprocessing.StandardScaler().fit(tactile_data_final[:,0]),
+							   preprocessing.StandardScaler().fit(tactile_data_final[:,1]),
+							   preprocessing.StandardScaler().fit(tactile_data_final[:,2])]
+	tactile_min_max_scalar = [preprocessing.MinMaxScaler(feature_range=(0, 1)).fit(tactile_standard_scaler[0].transform(tactile_data_final[:,0])),
+							  preprocessing.MinMaxScaler(feature_range=(0, 1)).fit(tactile_standard_scaler[1].transform(tactile_data_final[:,1])),
+							  preprocessing.MinMaxScaler(feature_range=(0, 1)).fit(tactile_standard_scaler[2].transform(tactile_data_final[:,2]))]
 
 	# robot task space scalars: standard then min max:
 	robot_min_max_scalar = []
 	for feature in range(robot_task_space_final.shape[1]):
-		robot_min_max_scalar.append(preprocessing.MinMaxScaler (feature_range=(0, 1)).fit (robot_task_space_final[:,feature].reshape (-1, 1)))
+		robot_min_max_scalar.append(preprocessing.MinMaxScaler(feature_range=(0, 1)).fit(robot_task_space_final[:,feature].reshape(-1, 1)))
 
 	return tactile_standard_scaler, tactile_min_max_scalar, robot_min_max_scalar
 
@@ -133,23 +133,23 @@ if __name__  == "__main__":
 	tactile_standard_scaler, tactile_min_max_scalar, robot_min_max_scalar = calculate_scale_parameters()
 
 	# save the scalars
-	dump (tactile_standard_scaler[0], open (scaler_out_dir + 'tactile_standard_scaler_x.pkl', 'wb'))
-	dump (tactile_standard_scaler[1], open (scaler_out_dir + 'tactile_standard_scaler_y.pkl', 'wb'))
-	dump (tactile_standard_scaler[2], open (scaler_out_dir + 'tactile_standard_scaler_z.pkl', 'wb'))
-	dump (tactile_min_max_scalar[0], open (scaler_out_dir + 'tactile_min_max_scalar_x.pkl', 'wb'))
-	dump (tactile_min_max_scalar[1], open (scaler_out_dir + 'tactile_min_max_scalar_y.pkl', 'wb'))
-	dump (tactile_min_max_scalar[2], open (scaler_out_dir + 'tactile_min_max_scalar.pkl', 'wb'))
+	dump(tactile_standard_scaler[0], open(scaler_out_dir + 'tactile_standard_scaler_x.pkl', 'wb'))
+	dump(tactile_standard_scaler[1], open(scaler_out_dir + 'tactile_standard_scaler_y.pkl', 'wb'))
+	dump(tactile_standard_scaler[2], open(scaler_out_dir + 'tactile_standard_scaler_z.pkl', 'wb'))
+	dump(tactile_min_max_scalar[0], open(scaler_out_dir + 'tactile_min_max_scalar_x.pkl', 'wb'))
+	dump(tactile_min_max_scalar[1], open(scaler_out_dir + 'tactile_min_max_scalar_y.pkl', 'wb'))
+	dump(tactile_min_max_scalar[2], open(scaler_out_dir + 'tactile_min_max_scalar.pkl', 'wb'))
 
-	dump (robot_min_max_scalar[0], open (scaler_out_dir + 'robot_min_max_scalar_px.pkl', 'wb'))
-	dump (robot_min_max_scalar[1], open (scaler_out_dir + 'robot_min_max_scalar_py.pkl', 'wb'))
-	dump (robot_min_max_scalar[2], open (scaler_out_dir + 'robot_min_max_scalar_pz.pkl', 'wb'))
-	dump (robot_min_max_scalar[3], open (scaler_out_dir + 'robot_min_max_scalar_ex.pkl', 'wb'))
-	dump (robot_min_max_scalar[4], open (scaler_out_dir + 'robot_min_max_scalar_ey.pkl', 'wb'))
-	dump (robot_min_max_scalar[5], open (scaler_out_dir + 'robot_min_max_scalar_ez.pkl', 'wb'))
+	dump(robot_min_max_scalar[0], open(scaler_out_dir + 'robot_min_max_scalar_px.pkl', 'wb'))
+	dump(robot_min_max_scalar[1], open(scaler_out_dir + 'robot_min_max_scalar_py.pkl', 'wb'))
+	dump(robot_min_max_scalar[2], open(scaler_out_dir + 'robot_min_max_scalar_pz.pkl', 'wb'))
+	dump(robot_min_max_scalar[3], open(scaler_out_dir + 'robot_min_max_scalar_ex.pkl', 'wb'))
+	dump(robot_min_max_scalar[4], open(scaler_out_dir + 'robot_min_max_scalar_ey.pkl', 'wb'))
+	dump(robot_min_max_scalar[5], open(scaler_out_dir + 'robot_min_max_scalar_ez.pkl', 'wb'))
 
 	# Do twice, for test & train:
 	for path, data_dir_ in zip([train_out_dir, test_out_dir], [train_data_dir, test_data_dir]):
-		files = glob.glob (data_dir_ + '/*')
+		files = glob.glob(data_dir_ + '/*')
 		path_file = []
 
 		for experiment_number in tqdm(range(len(files))):
@@ -171,7 +171,7 @@ if __name__  == "__main__":
 
 			for time_step in range(robot_task_space.shape[0]):
 				for feature in range(6):
-					robot_task_space[time_step][feature] = (robot_task_space[time_step][feature] - min_max[feature][0]) / (min_max[feature][1] - min_max[feature][0])
+					robot_task_space[time_step][feature] =(robot_task_space[time_step][feature] - min_max[feature][0]) /(min_max[feature][1] - min_max[feature][0])
 
 			####################################### Xela Sensor Data ###########################################
 			tactile_data = []
@@ -199,11 +199,11 @@ if __name__  == "__main__":
 			for time_step in range(tactile_data.shape[0]):
 				for feature in range(3):
 					tactile_sample_test = [offset + real_value for offset, real_value in zip(tactile_offsets[feature], tactile_data[time_step][feature])]
-					for i in range (tactile_data.shape[2]):
-						tactile_data[time_step][feature][i] = (tactile_sample_test[i] - min_max_tactile[feature][0]) / (min_max_tactile[feature][1] - min_max_tactile[feature][0])
+					for i in range(tactile_data.shape[2]):
+						tactile_data[time_step][feature][i] =(tactile_sample_test[i] - min_max_tactile[feature][0]) /(min_max_tactile[feature][1] - min_max_tactile[feature][0])
 
 			####################################### Scale the data ###########################################
-			for index, (standard_scaler, min_max_scalar) in enumerate(zip(tactile_standard_scaler, tactile_min_max_scalar)):
+			for index,(standard_scaler, min_max_scalar) in enumerate(zip(tactile_standard_scaler, tactile_min_max_scalar)):
 				tactile_data[:, index] = standard_scaler.transform(tactile_data[:, index])
 				tactile_data[:, index] = min_max_scalar.transform(tactile_data[:, index])
 
