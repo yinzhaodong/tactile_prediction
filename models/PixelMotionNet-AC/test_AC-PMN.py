@@ -2,18 +2,22 @@
 # RUN IN PYTHON 3
 import os
 import csv
+import cv2
 import copy
 import numpy as np
 
-from tqdm import tqdm
-from datetime import datetime
-from torch.utils.data import Dataset
+from matplotlib import pyplot as plt
+from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)
+from matplotlib.animation import FuncAnimation
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
+from tqdm import tqdm
+from datetime import datetime
+from torch.utils.data import Dataset
 
 model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_model_26_10_2021_09_31/ACPixelMotionNet_model"
 data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_model_26_10_2021_09_31/"
@@ -189,6 +193,35 @@ class ACPixelMotionNet(nn.Module):
         return torch.stack(outputs)
 
 
+class image_player():
+    def __init__(self, images, save_name, feature, experiment_to_test):
+        self.feature = feature
+        self.save_name = save_name
+        self.experiment_to_test = experiment_to_test
+        self.file_save_name = data_save_path + 'test_plots_' + str(self.experiment_to_test) + '/' + self.save_name + '_feature_' + str(self.feature) + '.gif'
+        print(self.file_save_name)
+        self.run_the_tape(images)
+
+    def grab_frame(self):
+        frame = self.images[self.indexyyy][:, :, self.feature] * 255
+        return frame
+
+    def update(self, i):
+        plt.title(i)
+        self.im1.set_data(self.grab_frame())
+        self.indexyyy += 1
+        if self.indexyyy == len(self.images):
+            self.indexyyy = 0
+
+    def run_the_tape(self, images):
+        self.indexyyy = 0
+        self.images = images
+        ax1 = plt.subplot(1, 2, 1)
+        self.im1 = ax1.imshow(self.grab_frame(), cmap='gray', vmin=0, vmax=255)
+        ani = FuncAnimation(plt.gcf(), self.update, interval=20.8, save_count=len(images), repeat=False)
+        ani.save(self.file_save_name)
+
+
 class ModelTester:
     def __init__(self):
         self.test_full_loader = BG.load_full_data()
@@ -201,9 +234,16 @@ class ModelTester:
         self.criterion = nn.L1Loss()
         self.optimizer = optim.Adam(self.full_model.parameters(), lr=learning_rate)
 
+        self.load_scalars()
+
     def test_full_model(self):
         self.prediction_data = []
+        self.tg_back_scaled = []
+        self.tg10_back_scaled = []
+        self.tp10_back_scaled = []
+
         plot_training_loss = []
+
         for index, batch_features in enumerate(self.test_full_loader):
             tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
             action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
@@ -221,9 +261,6 @@ class ModelTester:
             image_gt = tactile[context_frames-1]
             image_gt_10 = tactile[-1]
 
-            tp_images.append(image_pred_t10)
-            tg_images.append(image_gt)
-            tg10_images.append(image_gt_10)
             for batch_value in range(len(image_pred_t10)):
                 seq_tp.append(cv2.resize(image_pred_t10[batch_value].permute(1,2,0).cpu().detach().numpy(), dsize=(4,4), interpolation=cv2.INTER_CUBIC).flatten())
                 seq_tg.append(cv2.resize(image_gt[batch_value].permute(1,2,0).cpu().detach().numpy(), dsize=(4,4), interpolation=cv2.INTER_CUBIC).flatten())
@@ -239,7 +276,7 @@ class ModelTester:
             xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
             xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
             xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
-            tp_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
+            self.tp10_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
 
             (tpx, tpy, tpz) = np.split(image_gt_batch, 3, axis=1)
             xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tpx)
@@ -248,7 +285,7 @@ class ModelTester:
             xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
             xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
             xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
-            tg_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
+            self.tg_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
 
             (tpx, tpy, tpz) = np.split(image_gt10_batch, 3, axis=1)
             xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tpx)
@@ -257,7 +294,96 @@ class ModelTester:
             xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
             xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
             xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
-            tg10_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
+            self.tg10_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
+
+
+        self.full_model = 0
+        self.test_full_loader = 0
+
+    def create_difference_gifs(self, experiment_to_test):
+        '''
+        - Create gifs showing the predicted images for a trial, the groundtruth and the difference between the two.
+        - Only at t+10
+        '''
+        plot_save_dir = data_save_path + "test_plots_" + str(experiment_to_test)
+        try:
+            os.mkdir(plot_save_dir)
+        except:
+            "directory already exists"
+
+        ts_to_test = 9
+        trial_groundtruth_data_t10 = []
+        trial_predicted_data_t10   = []
+        for index in range (len (self.prediction_data)):  # 11
+            for batch_number in range (len (self.prediction_data[index][0][ts_to_test])):  # 10
+                if experiment_to_test == self.prediction_data[index][2].T[batch_number][ts_to_test]:
+                    trial_predicted_data_t10.append (
+                        self.prediction_data[index][0][ts_to_test][batch_number].permute (1, 2, 0).numpy ())
+                    trial_groundtruth_data_t10.append (
+                        self.prediction_data[index][1][ts_to_test][batch_number].permute (1, 2, 0).numpy ())
+
+        prediction_data_to_plot_images = np.array(trial_predicted_data_t10)[:]
+        gt_data_to_plot_images = np.array(trial_groundtruth_data_t10)[:]
+
+        prediction_data_to_plot_images = prediction_data_to_plot_images[:-10]
+        gt_data_to_plot_images = gt_data_to_plot_images[10:]
+        images = [abs(prediction_data_to_plot_images[i] - gt_data_to_plot_images[i]) for i in range(len(gt_data_to_plot_images) - 10)]
+
+        for feature in range(2):
+            image_player(gt_data_to_plot_images, "groundtruth_t10", feature, experiment_to_test)
+            image_player(prediction_data_to_plot_images, "predicted_t10", feature, experiment_to_test)
+            image_player(images, "gt10_and_pt10_difference", feature, experiment_to_test)
+
+    def create_test_plots(self, experiment_to_test):
+        '''
+        - Plot the descaled 48 feature tactile vector for qualitative analysis
+        - Save plots in a folder with name being the trial number.
+        '''
+        trial_groundtruth_data = []
+        trial_predicted_data_t10 = []
+        for index in range(len(self.tg_back_scaled)):
+            for batch_number in range(len(self.tp10_back_scaled[index])):
+                if experiment_to_test == self.prediction_data[index][2].T[batch_number][0]:
+                    trial_predicted_data_t10.append(self.tp10_back_scaled[index][batch_number])
+                    trial_groundtruth_data.append(self.tg_back_scaled[index][batch_number])
+
+        self.prediction_data = []
+
+        plot_save_dir = data_save_path + "test_plots_" + str(experiment_to_test)
+        try:
+            os.mkdir(plot_save_dir)
+        except:
+            "directory already exists"
+
+        index = 0
+        titles = ["sheerx", "sheery", "normal"]
+        for j in range(3):
+            for i in range(16):
+                groundtruth_taxle = []
+                predicted_taxel_t10 = []
+                for k in range(len(trial_predicted_data_t10)):
+                    predicted_taxel_t10.append(trial_predicted_data_t10[k][j+i])
+                    groundtruth_taxle.append(trial_groundtruth_data[k][j+i])
+
+                index += 1
+
+                fig, ax1 = plt.subplots()
+                ax1.set_xlabel('time step')
+                ax1.set_ylabel('tactile reading')
+                ax1.plot([None for i in range(9)] + [i for i in predicted_taxel_t10], alpha=0.5, c="b", label="t10")
+                ax1.plot(groundtruth_taxle, alpha=0.5, c="r", label="gt")
+                ax1.tick_params(axis='y')
+                ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+                ax2.set_ylabel('loss')  # we already handled the x-label with ax1
+                fig.tight_layout()  # otherwise the right y-label is slightly clipped
+                fig.subplots_adjust(top=0.90)
+                ax1.legend(loc="upper right")
+                ax1.xaxis.set_major_locator(MultipleLocator(10))
+                ax1.xaxis.set_minor_locator(AutoMinorLocator(10))
+                ax1.grid(which='minor')
+                ax1.grid(which='major')
+                plt.title("Simple_LSTM tactile " + str(index))
+                plt.savefig(plot_save_dir + '/T10_test_plot_' + str(index) + '.png', dpi=300)
 
     def calc_test_performance(self):
         '''
@@ -336,125 +462,13 @@ class ModelTester:
         [print (i) for i in performance_data]
         np.save(data_save_path + 'model_performance_loss_data', np.asarray(performance_data))
 
-    def create_test_plots(self, exp_to_test):
-        # calculate tactile values for full sample:
-        time_step_to_test_t1 = 0
-        time_step_to_test_t5 = 4
-        time_step_to_test_t9 = 5
-        predicted_data_t1 = []
-        predicted_data_t5 = []
-        predicted_data_t9 = []
-        groundtruth_data = []
-
-        experiment_to_test = exp_to_test
-        for index, batch_set in enumerate(tactile_predictions):
-            for batch in range(0, len(batch_set[0])):
-                if experiment == experiment_to_test:
-                    prediction_values = batch_set[time_step_to_test_t1][batch]
-                    predicted_data_t1.append(prediction_values)
-                    prediction_values = batch_set[time_step_to_test_t5][batch]
-                    predicted_data_t5.append(prediction_values)
-                    prediction_values = batch_set[time_step_to_test_t9][batch]
-                    predicted_data_t9.append(prediction_values)
-                    gt_values = tactile_groundtruth[index][time_step_to_test_t1][batch]
-                    groundtruth_data.append(gt_values)
-
-        try:
-            plot_save_dir = data_save_path + "test_plots_" + str(experiment_to_test)
-            os.mkdir(plot_save_dir)
-        except:
-            "directory already exists"
-
-        index = 0
-        titles = ["sheerx", "sheery", "normal"]
-        for j in range(3):
-            for i in range(16):
-                groundtruth_taxle = []
-                predicted_taxel = []
-                predicted_taxel_t1 = []
-                predicted_taxel_t5 = []
-                predicted_taxel_t10 = []
-                for k in range(len(predicted_data_t1)):
-                    predicted_taxel_t1.append(predicted_data_t1[k][j+i].cpu().detach().numpy())
-                    predicted_taxel_t5.append(predicted_data_t5[k][j+i].cpu().detach().numpy())
-                    predicted_taxel_t10.append(predicted_data_t9[k][j+i].cpu().detach().numpy())
-                    groundtruth_taxle.append(groundtruth_data[k][j+i].cpu().detach().numpy())
-
-                index += 1
-
-                fig, ax1 = plt.subplots()
-                ax1.set_xlabel('time step')
-                ax1.set_ylabel('tactile reading')
-                ax1.plot([None for i in range(0)] + [i for i in predicted_taxel_t1], alpha=0.5, c="b", label="t1")
-                ax1.plot([None for i in range(4)] + [i for i in predicted_taxel_t5], alpha=0.5, c="k", label="t5")
-                ax1.plot([None for i in range(9)] + [i for i in predicted_taxel_t10], alpha=0.5, c="g", label="t10")
-                ax1.plot(groundtruth_taxle, alpha=0.5, c="r", label="gt")
-                ax1.tick_params(axis='y')
-                ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-                ax2.set_ylabel('loss')  # we already handled the x-label with ax1
-                fig.tight_layout()  # otherwise the right y-label is slightly clipped
-                fig.subplots_adjust(top=0.90)
-                ax1.legend(loc="upper right")
-                plt.title("Simple_LSTM tactile " + str(index))
-                plt.savefig(plot_save_dir + '/full_test_plot_' + str(index) + '.png', dpi=300)
-                plt.show()
-
-                fig, ax1 = plt.subplots()
-                ax1.set_xlabel('time step')
-                ax1.set_ylabel('tactile reading')
-                ax1.plot([None for i in range(0)] + [i for i in predicted_taxel_t1], alpha=0.5, c="b", label="t1")
-                ax1.plot(groundtruth_taxle, alpha=0.5, c="r", label="gt")
-                ax1.tick_params(axis='y')
-                ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-                ax2.set_ylabel('loss')  # we already handled the x-label with ax1
-                fig.tight_layout()  # otherwise the right y-label is slightly clipped
-                fig.subplots_adjust(top=0.90)
-                ax1.legend(loc="upper right")
-                plt.title("Simple_LSTM tactile " + str(index))
-                plt.savefig(plot_save_dir + '/T0_test_plot_' + str(index) + '.png', dpi=300)
-                plt.show()
-
-                fig, ax1 = plt.subplots()
-                ax1.set_xlabel('time step')
-                ax1.set_ylabel('tactile reading')
-                ax1.plot([None for i in range(4)] + [i for i in predicted_taxel_t5], alpha=0.5, c="b", label="t5")
-                ax1.plot(groundtruth_taxle, alpha=0.5, c="r", label="gt")
-                ax1.tick_params(axis='y')
-                ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-                ax2.set_ylabel('loss')  # we already handled the x-label with ax1
-                fig.tight_layout()  # otherwise the right y-label is slightly clipped
-                fig.subplots_adjust(top=0.90)
-                ax1.legend(loc="upper right")
-                plt.title("Simple_LSTM tactile " + str(index))
-                plt.savefig(plot_save_dir + '/T5_test_plot_' + str(index) + '.png', dpi=300)
-                plt.show()
-
-                fig, ax1 = plt.subplots()
-                ax1.set_xlabel('time step')
-                ax1.set_ylabel('tactile reading')
-                ax1.plot([None for i in range(9)] + [i for i in predicted_taxel_t10], alpha=0.5, c="b", label="t10")
-                ax1.plot(groundtruth_taxle, alpha=0.5, c="r", label="gt")
-                ax1.tick_params(axis='y')
-                ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-                ax2.set_ylabel('loss')  # we already handled the x-label with ax1
-                fig.tight_layout()  # otherwise the right y-label is slightly clipped
-                fig.subplots_adjust(top=0.90)
-                ax1.legend(loc="upper right")
-                ax1.xaxis.set_major_locator(MultipleLocator(10))
-                ax1.xaxis.set_minor_locator(AutoMinorLocator(10))
-                ax1.grid(which='minor')
-                ax1.grid(which='major')
-                plt.title("Simple_LSTM tactile " + str(index))
-                plt.savefig(plot_save_dir + '/T10_test_plot_' + str(index) + '.png', dpi=300)
-                plt.show()
-
     def load_scalars(self):
-        self.scaler_tx = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/scaler_tx.pkl")
-        self.scaler_ty = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/scaler_ty.pkl")
-        self.scaler_tz = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/scaler_tz.pkl")
-        self.min_max_scalerx_full_data = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/min_max_scalerx_full_data.pkl")
-        self.min_max_scalery_full_data = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/min_max_scalery_full_data.pkl")
-        self.min_max_scalerz_full_data = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/min_max_scalerz_full_data.pkl")
+        self.scaler_tx = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_standard_scaler_x.pkl")
+        self.scaler_ty = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_standard_scaler_y.pkl")
+        self.scaler_tz = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_standard_scaler_z.pkl")
+        self.min_max_scalerx_full_data = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_min_max_scalar_x.pkl")
+        self.min_max_scalery_full_data = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_min_max_scalar_y.pkl")
+        self.min_max_scalerz_full_data = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_min_max_scalar.pkl")
 
 
 class PSNR:
@@ -551,7 +565,8 @@ if __name__ == "__main__":
     MT = ModelTester()
     MT.test_full_model()
     MT.calc_test_performance()
-    MT.create_test_plots(0)
-    MT.create_test_plots(1)
+    for i in range(15):
+        MT.create_difference_gifs(i)
+        MT.create_test_plots(i)
 
 

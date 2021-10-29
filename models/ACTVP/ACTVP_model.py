@@ -14,10 +14,9 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTVP/saved_models/"
-train_data_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/train_image_dataset_10c_10h/"
-scaler_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/"
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTVP/saved_models/prelim_"
+train_data_dir = "/home/user/Robotics/Data_sets/data_collection_preliminary/train_image_dataset_10c_10h/"
+scaler_dir = "/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/"
 
 # unique save title:
 model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")

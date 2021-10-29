@@ -14,7 +14,6 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-
 model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_"
 train_data_dir = "/home/user/Robotics/Data_sets/data_collection_preliminary/train_image_dataset_10c_10h/"
 scaler_dir = "/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/"
