@@ -237,12 +237,12 @@ class ModelTester:
         self.load_scalars()
 
     def test_full_model(self):
-        self.prediction_data = []
-        self.tg_back_scaled = []
+        self.performance_data = []
+        self.prediction_data  = []
+        self.tg_back_scaled   = []
         self.tg10_back_scaled = []
         self.tp10_back_scaled = []
-
-        plot_training_loss = []
+        self.current_exp      = 0
 
         for index, batch_features in enumerate(self.test_full_loader):
             tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
@@ -251,61 +251,94 @@ class ModelTester:
 
             experiment_number = batch_features[2].permute(1,0)[context_frames:]
             time_steps = batch_features[3].permute(1,0)[context_frames:]
-            self.prediction_data.append([tactile_predictions.cpu().detach(), tactile[context_frames:].cpu().detach(), experiment_number.cpu().detach(), time_steps.cpu().detach()])
 
-            # convert to 48 bits
-            seq_tp = []
-            seq_tg = []
-            seq_tg10 = []
-            image_pred_t10 = tactile_predictions[-1]
-            image_gt = tactile[context_frames-1]
-            image_gt_10 = tactile[-1]
+            current_batch = 0
+            new_batch = 0
+            for index, exp in enumerate(experiment_number.T):
+                if exp[0] == self.current_exp:
+                    current_batch += 1
+                else:
+                    new_batch += 1
 
-            for batch_value in range(len(image_pred_t10)):
-                seq_tp.append(cv2.resize(image_pred_t10[batch_value].permute(1,2,0).cpu().detach().numpy(), dsize=(4,4), interpolation=cv2.INTER_CUBIC).flatten())
-                seq_tg.append(cv2.resize(image_gt[batch_value].permute(1,2,0).cpu().detach().numpy(), dsize=(4,4), interpolation=cv2.INTER_CUBIC).flatten())
-                seq_tg10.append(cv2.resize(image_gt_10[batch_value].permute(1,2,0).cpu().detach().numpy(), dsize=(4,4), interpolation=cv2.INTER_CUBIC).flatten())
+            for i in [0,1]:
+                if i == 0:
+                    tactile_cut             = tactile[:, 0:current_batch, :, :, :]
+                    tactile_predictions_cut = tactile_predictions[:, 0:current_batch, :, :, :]
+                    experiment_number_cut   = experiment_number[:, 0:current_batch]
+                    time_steps_cut          = time_steps[:, 0:current_batch]
+                if i == 1:
+                    tactile_cut             = tactile[:, current_batch:, :, :, :]
+                    tactile_predictions_cut = tactile_predictions[:, current_batch:, :, :, :]
+                    experiment_number_cut   = experiment_number[:, current_batch:]
+                    time_steps_cut          = time_steps[:, current_batch:]
 
-            image_pred_t10_batch = np.array(seq_tp)
-            image_gt_batch = np.array(seq_tg)
-            image_gt10_batch = np.array(seq_tg10)
-            (tpx, tpy, tpz) = np.split(image_pred_t10_batch, 3, axis=1)
-            xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tpx)
-            xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(tpy)
-            xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tpz)
-            xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
-            xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
-            xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
-            self.tp10_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
+                self.prediction_data.append([tactile_predictions_cut.cpu().detach(), tactile_cut[context_frames:].cpu().detach(),
+                                             experiment_number_cut.cpu().detach(), time_steps_cut.cpu().detach()])
 
-            (tpx, tpy, tpz) = np.split(image_gt_batch, 3, axis=1)
-            xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tpx)
-            xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(tpy)
-            xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tpz)
-            xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
-            xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
-            xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
-            self.tg_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
+                # convert to 48 bits
+                seq_tp = []
+                seq_tg = []
+                seq_tg10 = []
+                image_pred_t10 = tactile_predictions_cut[-1]
+                image_gt = tactile_cut[context_frames - 1]
+                image_gt_10 = tactile_cut[-1]
 
-            (tpx, tpy, tpz) = np.split(image_gt10_batch, 3, axis=1)
-            xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tpx)
-            xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(tpy)
-            xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tpz)
-            xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
-            xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
-            xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
-            self.tg10_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
+                for batch_value in range(len(image_pred_t10)):
+                    seq_tp.append(cv2.resize(image_pred_t10[batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
+                    seq_tg.append(cv2.resize(image_gt[batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
+                    seq_tg10.append(cv2.resize(image_gt_10[batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
 
+                image_pred_t10_batch = np.array(seq_tp)
+                image_gt_batch = np.array(seq_tg)
+                image_gt10_batch = np.array(seq_tg10)
+                (tpx, tpy, tpz) = np.split(image_pred_t10_batch, 3, axis=1)
+                xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tpx)
+                xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(tpy)
+                xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tpz)
+                xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
+                xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
+                xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
+                self.tp10_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
 
-        self.full_model = 0
-        self.test_full_loader = 0
+                (tpx, tpy, tpz) = np.split(image_gt_batch, 3, axis=1)
+                xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tpx)
+                xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(tpy)
+                xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tpz)
+                xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
+                xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
+                xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
+                self.tg_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
+
+                (tpx, tpy, tpz) = np.split(image_gt10_batch, 3, axis=1)
+                xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tpx)
+                xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(tpy)
+                xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tpz)
+                xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
+                xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
+                xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
+                self.tg10_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
+
+                if i == 0 and new_batch != 0:
+                    self.calc_trial_performance()
+                    self.create_difference_gifs(self.current_exp)
+                    self.create_test_plots(self.current_exp)
+                    self.prediction_data = []
+                    self.tg_back_scaled = []
+                    self.tg10_back_scaled = []
+                    self.tp10_back_scaled = []
+                    self.current_exp += 1
+                if i== 0 and new_batch == 0:
+                    break
+
+        self.calc_test_performance()
+
 
     def create_difference_gifs(self, experiment_to_test):
         '''
         - Create gifs showing the predicted images for a trial, the groundtruth and the difference between the two.
         - Only at t+10
         '''
-        plot_save_dir = data_save_path + "test_plots_" + str(experiment_to_test)
+        plot_save_dir = data_save_path + "test_plots_" + str(self.current_exp)
         try:
             os.mkdir(plot_save_dir)
         except:
@@ -314,13 +347,10 @@ class ModelTester:
         ts_to_test = 9
         trial_groundtruth_data_t10 = []
         trial_predicted_data_t10   = []
-        for index in range (len (self.prediction_data)):  # 11
-            for batch_number in range (len (self.prediction_data[index][0][ts_to_test])):  # 10
-                if experiment_to_test == self.prediction_data[index][2].T[batch_number][ts_to_test]:
-                    trial_predicted_data_t10.append (
-                        self.prediction_data[index][0][ts_to_test][batch_number].permute (1, 2, 0).numpy ())
-                    trial_groundtruth_data_t10.append (
-                        self.prediction_data[index][1][ts_to_test][batch_number].permute (1, 2, 0).numpy ())
+        for index in range(len(self.prediction_data)):
+            for batch_number in range(self.prediction_data[index][0].shape[1]):
+                trial_predicted_data_t10.append(self.prediction_data[index][0][ts_to_test][batch_number].permute(1, 2, 0).numpy())
+                trial_groundtruth_data_t10.append(self.prediction_data[index][1][ts_to_test][batch_number].permute(1, 2, 0).numpy())
 
         prediction_data_to_plot_images = np.array(trial_predicted_data_t10)[:]
         gt_data_to_plot_images = np.array(trial_groundtruth_data_t10)[:]
@@ -329,10 +359,10 @@ class ModelTester:
         gt_data_to_plot_images = gt_data_to_plot_images[10:]
         images = [abs(prediction_data_to_plot_images[i] - gt_data_to_plot_images[i]) for i in range(len(gt_data_to_plot_images) - 10)]
 
-        for feature in range(2):
-            image_player(gt_data_to_plot_images, "groundtruth_t10", feature, experiment_to_test)
-            image_player(prediction_data_to_plot_images, "predicted_t10", feature, experiment_to_test)
-            image_player(images, "gt10_and_pt10_difference", feature, experiment_to_test)
+        for feature in range(3):
+            image_player(gt_data_to_plot_images, "groundtruth_t10", feature, self.current_exp)
+            image_player(prediction_data_to_plot_images, "predicted_t10", feature, self.current_exp)
+            image_player(images, "gt10_and_pt10_difference", feature, self.current_exp)
 
     def create_test_plots(self, experiment_to_test):
         '''
@@ -347,7 +377,6 @@ class ModelTester:
                     trial_predicted_data_t10.append(self.tp10_back_scaled[index][batch_number])
                     trial_groundtruth_data.append(self.tg_back_scaled[index][batch_number])
 
-        self.prediction_data = []
 
         plot_save_dir = data_save_path + "test_plots_" + str(experiment_to_test)
         try:
@@ -384,13 +413,9 @@ class ModelTester:
                 ax1.grid(which='major')
                 plt.title("Simple_LSTM tactile " + str(index))
                 plt.savefig(plot_save_dir + '/T10_test_plot_' + str(index) + '.png', dpi=300)
+                plt.clf()
 
-    def calc_test_performance(self):
-        '''
-        - Calculates PSNR, SSIM, MAE for ts1, 5, 10 and x,y,z forces
-        - Save Plots for qualitative analysis
-        - Slip classification test
-        '''
+    def calc_trial_performance(self):
         mae_loss, mae_loss_1, mae_loss_5, mae_loss_10, mae_loss_x, mae_loss_y, mae_loss_z = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         ssim_loss, ssim_loss_1, ssim_loss_5, ssim_loss_10, ssim_loss_x, ssim_loss_y, ssim_loss_z = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         psnr_loss, psnr_loss_1, psnr_loss_5, psnr_loss_10, psnr_loss_x, psnr_loss_y, psnr_loss_z = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -433,34 +458,46 @@ class ModelTester:
                 psnr_loss_y  += psnr_calc(batch_set[0][:,:,1], batch_set[1][:,:,1])
                 psnr_loss_z  += psnr_calc(batch_set[0][:,:,2], batch_set[1][:,:,2])
 
+        self.performance_data.append([mae_loss/index, mae_loss_1/index, mae_loss_5/index, mae_loss_10/index, mae_loss_x/index,
+                                mae_loss_y/index, mae_loss_z/index, ssim_loss/index_ssim, ssim_loss_1/index,
+                                ssim_loss_5/index, ssim_loss_10/index, ssim_loss_x/index, ssim_loss_y/index,
+                                ssim_loss_z/index, psnr_loss/index, psnr_loss_1/index, psnr_loss_5/index,
+                                psnr_loss_10/index, psnr_loss_x/index, psnr_loss_y/index, psnr_loss_z/index])
 
-        performance_data = []
-        performance_data.append(["test loss MAE(L1): ", (mae_loss / index)])
-        performance_data.append(["test loss MAE(L1) pred ts 1: ", (mae_loss_1 / index)])
-        performance_data.append(["test loss MAE(L1) pred ts 5: ", (mae_loss_5 / index)])
-        performance_data.append(["test loss MAE(L1) pred ts 10: ", (mae_loss_10 / index)])
-        performance_data.append(["test loss MAE(L1) pred force x: ", (mae_loss_x / index)])
-        performance_data.append(["test loss MAE(L1) pred force y: ", (mae_loss_y / index)])
-        performance_data.append(["test loss MAE(L1) pred force z: ", (mae_loss_z / index)])
+    def calc_test_performance(self):
+        '''
+        - Calculates PSNR, SSIM, MAE for ts1, 5, 10 and x,y,z forces
+        - Save Plots for qualitative analysis
+        - Slip classification test
+        '''
 
-        performance_data.append(["test loss SSIM: ", (ssim_loss / index_ssim)])
-        performance_data.append(["test loss SSIM pred ts 1: ", (ssim_loss_1 / index)])
-        performance_data.append(["test loss SSIM pred ts 5: ", (ssim_loss_5 / index)])
-        performance_data.append(["test loss SSIM pred ts 10: ", (ssim_loss_10 / index)])
-        performance_data.append(["test loss SSIM pred force x: ", (ssim_loss_x / index)])
-        performance_data.append(["test loss SSIM pred force y: ", (ssim_loss_y / index)])
-        performance_data.append(["test loss SSIM pred force z: ", (ssim_loss_z / index)])
+        performance_data_full = []
+        performance_data_full.append(["test loss MAE(L1): ", (sum([i[0] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss MAE(L1) pred ts 1: ", (sum([i[1] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss MAE(L1) pred ts 5: ", (sum([i[2] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss MAE(L1) pred ts 10: ", (sum([i[3] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss MAE(L1) pred force x: ", (sum([i[4] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss MAE(L1) pred force y: ", (sum([i[5] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss MAE(L1) pred force z: ", (sum([i[6] for i in self.performance_data()]) / len(self.performance_data()))])
 
-        performance_data.append(["test loss PSNR: ", (psnr_loss / index)])
-        performance_data.append(["test loss PSNR pred ts 1: ", (psnr_loss_1 / index)])
-        performance_data.append(["test loss PSNR pred ts 5: ", (psnr_loss_5 / index)])
-        performance_data.append(["test loss PSNR pred ts 10: ", (psnr_loss_10 / index)])
-        performance_data.append(["test loss PSNR pred force x: ", (psnr_loss_x / index)])
-        performance_data.append(["test loss PSNR pred force y: ", (psnr_loss_y / index)])
-        performance_data.append(["test loss PSNR pred force z: ", (psnr_loss_z / index)])
+        performance_data_full.append(["test loss SSIM: ", (sum([i[7] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss SSIM pred ts 1: ", (sum([i[8] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss SSIM pred ts 5: ", (sum([i[9] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss SSIM pred ts 10: ", (sum([i[10] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss SSIM pred force x: ", (sum([i[11] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss SSIM pred force y: ", (sum([i[12] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss SSIM pred force z: ", (sum([i[13] for i in self.performance_data()]) / len(self.performance_data()))])
 
-        [print (i) for i in performance_data]
-        np.save(data_save_path + 'model_performance_loss_data', np.asarray(performance_data))
+        performance_data_full.append(["test loss PSNR: ", (sum([i[14] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss PSNR pred ts 1: ", (sum([i[15] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss PSNR pred ts 5: ", (sum([i[16] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss PSNR pred ts 10: ", (sum([i[17] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss PSNR pred force x: ", (sum([i[18] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss PSNR pred force y: ", (sum([i[19] for i in self.performance_data()]) / len(self.performance_data()))])
+        performance_data_full.append(["test loss PSNR pred force z: ", (sum([i[20] for i in self.performance_data()]) / len(self.performance_data()))])
+
+        [print (i) for i in performance_data_full]
+        np.save(data_save_path + 'model_performance_loss_data', np.asarray(performance_data_full))
 
     def load_scalars(self):
         self.scaler_tx = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_standard_scaler_x.pkl")

@@ -123,7 +123,6 @@ def calculate_scale_parameters():
 	return tactile_standard_scaler, tactile_min_max_scalar, robot_min_max_scalar
 
 if __name__  == "__main__":
-
 	# read all the folder names for each trial
 	files = glob.glob(train_data_dir + '/*')
 	files += glob.glob(test_data_dir + '/*')
