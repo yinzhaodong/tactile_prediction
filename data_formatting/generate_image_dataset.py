@@ -213,7 +213,7 @@ if __name__  == "__main__":
 			tactile_images, tactile_image_names = [], []
 			for time_step in range(tactile_data.shape[0]):
 				# create the image:
-				current_image = create_image(tactile_data[time_step][0], tactile_data[time_step][1], tactile_data[time_step][1])
+				current_image = create_image(tactile_data[time_step][0], tactile_data[time_step][1], tactile_data[time_step][2])
 				tactile_images.append(current_image)
 				# save the image:
 				image_name = "tactile_image_" + str(experiment_number) + "_time_step_" + str(time_step) + ".npy"

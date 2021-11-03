@@ -276,66 +276,10 @@ class ModelTester:
                 self.prediction_data.append([tactile_predictions_cut.cpu().detach(), tactile_cut[context_frames:].cpu().detach(),
                                              experiment_number_cut.cpu().detach(), time_steps_cut.cpu().detach()])
 
-                # convert to 48 bits
-                seq_tp = []
-                seq_tp5 = []
-                seq_tg = []
-                seq_tg10 = []
-                image_pred_t10 = tactile_predictions_cut[-1]
-                image_pred_t5 = tactile_predictions_cut[-5]
-                image_gt = tactile_cut[context_frames - 1]
-                image_gt_10 = tactile_cut[-1]
-
-                for batch_value in range(len(image_pred_t10)):
-                    seq_tp.append(cv2.resize(image_pred_t10[batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
-                    seq_tp5.append(cv2.resize(image_pred_t5[batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
-                    seq_tg.append(cv2.resize(image_gt[batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
-                    seq_tg10.append(cv2.resize(image_gt_10[batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
-
-                image_pred_t10_batch = np.array(seq_tp)
-                image_pred_t5_batch = np.array(seq_tp5)
-                image_gt_batch = np.array(seq_tg)
-                image_gt10_batch = np.array(seq_tg10)
-                (tpx, tpy, tpz) = np.split(image_pred_t10_batch, 3, axis=1)
-                xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tpx)
-                xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(tpy)
-                xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tpz)
-                xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
-                xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
-                xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
-                self.tp10_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
-
-                (tpx, tpy, tpz) = np.split(image_pred_t5_batch, 3, axis=1)
-                xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tpx)
-                xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(tpy)
-                xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tpz)
-                xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
-                xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
-                xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
-                self.tp5_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
-
-                (tpx, tpy, tpz) = np.split(image_gt_batch, 3, axis=1)
-                xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tpx)
-                xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(tpy)
-                xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tpz)
-                xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
-                xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
-                xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
-                self.tg_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
-
-                (tpx, tpy, tpz) = np.split(image_gt10_batch, 3, axis=1)
-                xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tpx)
-                xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(tpy)
-                xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tpz)
-                xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
-                xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
-                xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
-                self.tg10_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
-
                 if i == 0 and new_batch != 0:
                     print("currently testing trial number: ", str(self.current_exp))
-                    self.calc_trial_performance()
-                    self.create_test_plots(self.current_exp)
+                    # self.calc_trial_performance()
+                    # self.create_test_plots(self.current_exp)
                     self.create_difference_gifs(self.current_exp)
                     self.prediction_data = []
                     self.tg_back_scaled = []
