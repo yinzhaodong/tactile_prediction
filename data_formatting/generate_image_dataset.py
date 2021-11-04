@@ -18,7 +18,6 @@ import pandas as pd
 from PIL import Image
 from tqdm import tqdm
 from pickle import dump
-from dotenv import find_dotenv, load_dotenv
 from sklearn import preprocessing
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -89,16 +88,10 @@ def calculate_scale_parameters():
 			tactile_mean_start_values.append(int(sum(tactile_data[0][feature]) / len(tactile_data[0][feature])))
 			tactile_offsets.append([tactile_mean_start_values[feature] - tactile_starting_value for tactile_starting_value in tactile_data[0][feature]])
 
-		# normalise for each force:
 		tactile_data = np.array(tactile_data)
-		min_max_tactile = []
-		for feature in range(3):
-			min_max_tactile.append([ min([min(x) for x in tactile_data[:,feature]]), max([max(x) for x in tactile_data[:,feature]]) ])
 		for time_step in range(tactile_data.shape[0]):
 			for feature in range(3):
-				tactile_sample_test = [offset + real_value for offset, real_value in zip(tactile_offsets[feature], tactile_data[time_step][feature])]
-				for i in range(tactile_data.shape[2]):
-					tactile_data[time_step][feature][i] =(tactile_sample_test[i] - min_max_tactile[feature][0]) /(min_max_tactile[feature][1] - min_max_tactile[feature][0])
+				tactile_data[time_step][feature] = [tactile_data[time_step][feature][i] + tactile_offsets[feature][i] for i in range(16)]
 
 		tactile_data_final += list(tactile_data)
 		robot_task_space_final += list(robot_task_space)
@@ -189,17 +182,10 @@ if __name__  == "__main__":
 				tactile_mean_start_values.append(int(sum(tactile_data[0][feature]) / len(tactile_data[0][feature])))
 				tactile_offsets.append([tactile_mean_start_values[feature] - tactile_starting_value for tactile_starting_value in tactile_data[0][feature]])
 
-			# normalise for each force:
 			tactile_data = np.array(tactile_data)
-			min_max_tactile = []
-			for feature in range(3):
-				min_max_tactile.append([ min([min(x) for x in tactile_data[:,feature]]), max([max(x) for x in tactile_data[:,feature]]) ])
-
 			for time_step in range(tactile_data.shape[0]):
 				for feature in range(3):
-					tactile_sample_test = [offset + real_value for offset, real_value in zip(tactile_offsets[feature], tactile_data[time_step][feature])]
-					for i in range(tactile_data.shape[2]):
-						tactile_data[time_step][feature][i] =(tactile_sample_test[i] - min_max_tactile[feature][0]) /(min_max_tactile[feature][1] - min_max_tactile[feature][0])
+					tactile_data[time_step][feature] = [tactile_data[time_step][feature][i] + tactile_offsets[feature][i] for i in range(16)]
 
 			####################################### Scale the data ###########################################
 			for index,(standard_scaler, min_max_scalar) in enumerate(zip(tactile_standard_scaler, tactile_min_max_scalar)):

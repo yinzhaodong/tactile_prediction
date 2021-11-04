@@ -19,8 +19,8 @@ from tqdm import tqdm
 from datetime import datetime
 from torch.utils.data import Dataset
 
-model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_model_26_10_2021_09_31/ACPixelMotionNet_model"
-data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_model_26_10_2021_09_31/"
+model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_model_03_11_2021_11_50/ACPixelMotionNet_model"
+data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_model_03_11_2021_11_50/"
 test_data_dir   = "/home/user/Robotics/Data_sets/data_collection_preliminary/test_image_dataset_10c_10h/"
 scaler_dir      = "/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/"
 
@@ -276,10 +276,35 @@ class ModelTester:
                 self.prediction_data.append([tactile_predictions_cut.cpu().detach(), tactile_cut[context_frames:].cpu().detach(),
                                              experiment_number_cut.cpu().detach(), time_steps_cut.cpu().detach()])
 
+
+                # convert back to 48 feature tactile readings for plotting:
+                gt = []
+                p5 = []
+                p10 = []
+
+                for batch_value in range(tactile_predictions_cut.shape[1]):
+                    gt.append(cv2.resize(tactile_cut[context_frames-1][batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
+                    p5.append(cv2.resize(tactile_predictions_cut[4][batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
+                    p10.append(cv2.resize(tactile_predictions_cut[9][batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
+
+                gt = np.array(gt)
+                p5 = np.array(p5)
+                p10 = np.array(p10)
+
+                (tx, ty, tz) = np.split(gt, 3, axis=1)
+                xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tx)
+                xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(ty)
+                xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tz)
+                xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
+                xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
+                xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
+                self.tp10_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
+
+
                 if i == 0 and new_batch != 0:
                     print("currently testing trial number: ", str(self.current_exp))
-                    # self.calc_trial_performance()
-                    # self.create_test_plots(self.current_exp)
+                    self.calc_trial_performance()
+                    self.create_test_plots(self.current_exp)
                     self.create_difference_gifs(self.current_exp)
                     self.prediction_data = []
                     self.tg_back_scaled = []
