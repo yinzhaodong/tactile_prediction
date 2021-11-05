@@ -19,8 +19,8 @@ from tqdm import tqdm
 from datetime import datetime
 from torch.utils.data import Dataset
 
-model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_model_03_11_2021_11_50/ACPixelMotionNet_model"
-data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_model_03_11_2021_11_50/"
+model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_model_04_11_2021_12_35/ACPixelMotionNet_model"
+data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_model_04_11_2021_12_35/"
 test_data_dir   = "/home/user/Robotics/Data_sets/data_collection_preliminary/test_image_dataset_10c_10h/"
 scaler_dir      = "/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/"
 
@@ -240,7 +240,6 @@ class ModelTester:
         self.performance_data = []
         self.prediction_data  = []
         self.tg_back_scaled   = []
-        self.tg10_back_scaled = []
         self.tp10_back_scaled = []
         self.tp5_back_scaled = []
         self.current_exp      = 0
@@ -276,12 +275,10 @@ class ModelTester:
                 self.prediction_data.append([tactile_predictions_cut.cpu().detach(), tactile_cut[context_frames:].cpu().detach(),
                                              experiment_number_cut.cpu().detach(), time_steps_cut.cpu().detach()])
 
-
                 # convert back to 48 feature tactile readings for plotting:
                 gt = []
                 p5 = []
                 p10 = []
-
                 for batch_value in range(tactile_predictions_cut.shape[1]):
                     gt.append(cv2.resize(tactile_cut[context_frames-1][batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
                     p5.append(cv2.resize(tactile_predictions_cut[4][batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
@@ -290,25 +287,28 @@ class ModelTester:
                 gt = np.array(gt)
                 p5 = np.array(p5)
                 p10 = np.array(p10)
+                descalled_data = []
+                for data in [gt, p5, p10]:
+                    (tx, ty, tz) = np.split(data, 3, axis=1)
+                    xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tx)
+                    xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(ty)
+                    xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tz)
+                    xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
+                    xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
+                    xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
+                    descalled_data.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
 
-                (tx, ty, tz) = np.split(gt, 3, axis=1)
-                xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tx)
-                xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(ty)
-                xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tz)
-                xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
-                xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
-                xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
-                self.tp10_back_scaled.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
-
+                self.tg_back_scaled.append(descalled_data[0])
+                self.tp5_back_scaled.append(descalled_data[1])
+                self.tp10_back_scaled.append(descalled_data[2])
 
                 if i == 0 and new_batch != 0:
                     print("currently testing trial number: ", str(self.current_exp))
-                    self.calc_trial_performance()
+                    # self.calc_trial_performance()
                     self.create_test_plots(self.current_exp)
                     self.create_difference_gifs(self.current_exp)
                     self.prediction_data = []
                     self.tg_back_scaled = []
-                    self.tg10_back_scaled = []
                     self.tp10_back_scaled = []
                     self.tp5_back_scaled = []
                     self.current_exp += 1
@@ -383,22 +383,29 @@ class ModelTester:
                 fig, ax1 = plt.subplots()
                 ax1.set_xlabel('time step')
                 ax1.set_ylabel('tactile reading')
-                ax1.plot([None for i in range(9)] + [i for i in predicted_taxel_t10], alpha=0.5, c="b", label="t10")
-                ax1.plot([None for i in range(4)] + [i for i in predicted_taxel_t5], alpha=0.5, c="b", label="t5")
-                ax1.plot(groundtruth_taxle, alpha=0.5, c="r", label="gt")
+                line_1 = ax1.plot([i for i in predicted_taxel_t10], alpha=1.0, c="b", label="Pred_t10")
+                line_2 = ax1.plot([i for i in predicted_taxel_t5], alpha=1.0, c="g", label="Pred_t5")
+                line_3 = ax1.plot(groundtruth_taxle, alpha=1.0, c="r", label="Gt")
                 ax1.tick_params(axis='y')
+
                 ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-                ax2.set_ylabel('loss')  # we already handled the x-label with ax1
+                ax2.set_ylabel('MAE between gt+t10, pred_t10')  # we already handled the x-label with ax1
+                line_4 = ax2.plot([None for i in range(10)] + [abs(pred - gt) for (gt, pred) in zip(groundtruth_taxle[10:], predicted_taxel_t10[:-10])], alpha=1.0, c="k", label="MAE")
+
+                lines = line_1 + line_2 + line_3 + line_4
+                labs = [l.get_label () for l in lines]
+
                 fig.tight_layout()  # otherwise the right y-label is slightly clipped
                 fig.subplots_adjust(top=0.90)
-                ax1.legend(loc="upper right")
+                ax1.legend(lines, labs, loc="upper right")
                 ax1.xaxis.set_major_locator(MultipleLocator(10))
                 ax1.xaxis.set_minor_locator(AutoMinorLocator(10))
                 ax1.grid(which='minor')
                 ax1.grid(which='major')
-                plt.title("Simple_LSTM tactile " + str(index))
-                plt.savefig(plot_save_dir + '/T10_test_plot_' + str(index) + '.png', dpi=300)
+                plt.title("AV-PMN model taxel " + str(index))
+                plt.savefig(plot_save_dir + '/test_plot_taxel_' + str(index) + '.png', dpi=300)
                 plt.clf()
+
 
     def calc_trial_performance(self):
         mae_loss, mae_loss_1, mae_loss_5, mae_loss_10, mae_loss_x, mae_loss_y, mae_loss_z = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
