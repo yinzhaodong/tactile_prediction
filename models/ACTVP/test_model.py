@@ -103,92 +103,45 @@ class ConvLSTMCell(nn.Module):
 
     def init_hidden(self, batch_size, image_size):
         height, width = image_size
-        return(torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device).to(device),
+        return (torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device).to(device),
                 torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device).to(device))
 
 
-class ACPixelMotionNet(nn.Module):
+class ACTVP(nn.Module):
     def __init__(self):
-        super(ACPixelMotionNet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1).cuda()
-        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1).cuda()
-        self.convlstm1 = ConvLSTMCell(input_dim=64, hidden_dim=32, kernel_size=(3, 3), bias=True).cuda()
-        self.convlstm2 = ConvLSTMCell(input_dim=44, hidden_dim=32, kernel_size=(3, 3), bias=True).cuda()
-        self.upconv1 = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, stride=1, padding=1).cuda()
-        self.upconv2 = nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1).cuda()
-        self.outconv = nn.Conv2d(in_channels=32, out_channels=3, kernel_size=3, stride=1, padding=1).cuda()
-
-        self.relu1 = nn.ReLU(True)
-        self.relu2 = nn.ReLU(True)
-        self.relu3 = nn.ReLU(True)
-        self.relu4 = nn.ReLU(True)
-        self.tanh = nn.Tanh()
-
-        self.maxpool1 = nn.MaxPool2d(2, stride=2)
-        self.maxpool2 = nn.MaxPool2d(2, stride=2)
-        self.upsample1 = nn.Upsample(scale_factor=2)
-        self.upsample2 = nn.Upsample(scale_factor=2)
-
-        self.encoder = nn.Sequential(
-            nn.Conv2d(1, 16, 3, stride=3, padding=1),  # b, 16, 10, 10
-            nn.ReLU(True),
-            nn.MaxPool2d(2, stride=2),  # b, 16, 5, 5
-            nn.Conv2d(16, 8, 3, stride=2, padding=1),  # b, 8, 3, 3
-            nn.ReLU(True),
-            nn.MaxPool2d(2, stride=1)  # b, 8, 2, 2
-        )
+        super(ACTVP, self).__init__()
+        self.convlstm1 = ConvLSTMCell(input_dim=3, hidden_dim=12, kernel_size=(3, 3), bias=True).cuda()
+        self.convlstm2 = ConvLSTMCell(input_dim=24, hidden_dim=24, kernel_size=(3, 3), bias=True).cuda()
+        self.conv1 = nn.Conv2d(in_channels=27, out_channels=3, kernel_size=5, stride=1, padding=2).cuda()
 
     def forward(self, tactiles, actions):
         self.batch_size = actions.shape[1]
         state = actions[0]
         state.to(device)
         batch_size__ = tactiles.shape[1]
-        hidden_1, cell_1 = self.convlstm1.init_hidden(batch_size=self.batch_size, image_size=(8,8))
-        hidden_2, cell_2 = self.convlstm2.init_hidden(batch_size=self.batch_size, image_size=(8,8))
+        hidden_1, cell_1 = self.convlstm1.init_hidden(batch_size=self.batch_size, image_size=(32, 32))
+        hidden_2, cell_2 = self.convlstm2.init_hidden(batch_size=self.batch_size, image_size=(32, 32))
         outputs = []
-
         for index, (sample_tactile, sample_action) in enumerate(zip(tactiles[0:-1].squeeze(), actions[1:].squeeze())):
-            # sample_tactile.to(device)
-            # sample_action.to(device)
-
+            sample_tactile.to(device)
+            sample_action.to(device)
+            # 2. Run through lstm:
             if index > context_frames-1:
-                out1 = self.maxpool1(self.relu1(self.conv1(output)))
-                out2 = self.maxpool2(self.relu2(self.conv2(out1)))
-
-                hidden_1, cell_1 = self.convlstm1(input_tensor=out2, cur_state=[hidden_1, cell_1])
-
-                # Add in tiled action and state:
+                hidden_1, cell_1 = self.convlstm1(input_tensor=output, cur_state=[hidden_1, cell_1])
                 state_action = torch.cat((state, sample_action), 1)
-                robot_and_tactile = torch.cat((torch.cat(8*[torch.cat(8*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3), hidden_1.squeeze()), 1)
-
+                robot_and_tactile = torch.cat((torch.cat(32*[torch.cat(32*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3), hidden_1.squeeze()), 1)
                 hidden_2, cell_2 = self.convlstm2(input_tensor=robot_and_tactile, cur_state=[hidden_2, cell_2])
-
-                out3 = self.upsample1(self.relu3(self.upconv1(hidden_2)))
-                skip_connection = torch.cat((out1, out3), axis=1)  # skip connection
-                out4 = self.upsample2(self.relu4(self.upconv2(skip_connection)))
-
-                output = self.tanh(self.outconv(out4))
+                skip_connection_added = torch.cat((hidden_2, output), 1)
+                output = self.conv1(skip_connection_added)
                 outputs.append(output)
-
             else:
-                out1 = self.maxpool1(self.relu1(self.conv1(sample_tactile)))
-                out2 = self.maxpool2(self.relu2(self.conv2(out1)))
-
-                hidden_1, cell_1 = self.convlstm1(input_tensor=out2, cur_state=[hidden_1, cell_1])
-
-                # Add in tiled action and state:
+                hidden_1, cell_1 = self.convlstm1(input_tensor=sample_tactile, cur_state=[hidden_1, cell_1])
                 state_action = torch.cat((state, sample_action), 1)
-                robot_and_tactile = torch.cat((torch.cat(8*[torch.cat(8*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3), hidden_1.squeeze()), 1)
-
+                robot_and_tactile = torch.cat((torch.cat(32*[torch.cat(32*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3), hidden_1.squeeze()), 1)
                 hidden_2, cell_2 = self.convlstm2(input_tensor=robot_and_tactile, cur_state=[hidden_2, cell_2])
-
-                out3 = self.upsample1(self.relu3(self.upconv1(hidden_2)))
-                skip_connection = torch.cat((out1, out3), axis=1)  # skip connection
-                out4 = self.upsample2(self.relu4(self.upconv2(skip_connection)))
-
-                output = self.tanh(self.outconv(out4))
+                skip_connection_added = torch.cat((hidden_2, sample_tactile), 1)
+                output = self.conv1(skip_connection_added)
                 last_output = output
-
         outputs = [last_output] + outputs
         return torch.stack(outputs)
 
@@ -227,7 +180,7 @@ class ModelTester:
         self.test_full_loader = BG.load_full_data()
 
         # load model:
-        self.full_model = ACPixelMotionNet()
+        self.full_model = ACTVP()
         self.full_model = torch.load(model_path)
         self.full_model.eval()
 
@@ -372,13 +325,15 @@ class ModelTester:
         np.save(plot_save_dir + '/prediction_data_t10', np.array(self.tp10_back_scaled))
 
         if len(trial_groundtruth_data) > 250:
-            trim_min, trim_max = 100, 250
+            trim_min = 100
+            trim_max = 250
         else:
-            trim_min, trim_max = 0, -1
+            trim_min = 0
+            trim_max = -1
 
-        trial_predicted_data_t10[trim_min,trim_max]
-        trial_predicted_data_t5[trim_min,trim_max]
-        trial_groundtruth_data[trim_min,trim_max]
+        trial_groundtruth_data   = trial_groundtruth_data[trim_min:trim_max]
+        trial_predicted_data_t5  = trial_predicted_data_t5[trim_min:trim_max]
+        trial_predicted_data_t10 = trial_predicted_data_t10[trim_min:trim_max]
 
         index = 0
         titles = ["sheerx", "sheery", "normal"]
