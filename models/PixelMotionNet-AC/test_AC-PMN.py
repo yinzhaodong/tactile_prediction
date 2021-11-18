@@ -19,10 +19,10 @@ from tqdm import tqdm
 from datetime import datetime
 from torch.utils.data import Dataset
 
-model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_model_04_11_2021_12_35/ACPixelMotionNet_model"
-data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_model_04_11_2021_12_35/"
-test_data_dir   = "/home/user/Robotics/Data_sets/data_collection_preliminary/test_image_dataset_10c_10h/"
-scaler_dir      = "/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/"
+model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/TP_single_object_model_16_11_2021_11_32/ACPixelMotionNet_model"
+data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/TP_single_object_model_16_11_2021_11_32/"
+test_data_dir   = "/home/user/Robotics/Data_sets/TP_single_object/test_image_dataset_10c_10h/"
+scaler_dir      = "/home/user/Robotics/Data_sets/TP_single_object/scalar_info/"
 
 seed = 42
 epochs = 100
@@ -398,8 +398,17 @@ class ModelTester:
                 fig.tight_layout()  # otherwise the right y-label is slightly clipped
                 fig.subplots_adjust(top=0.90)
                 ax1.legend(lines, labs, loc="upper right")
-                ax1.xaxis.set_major_locator(MultipleLocator(10))
-                ax1.xaxis.set_minor_locator(AutoMinorLocator(10))
+                if len(predicted_taxel_t5) < 150:
+                    ax1.xaxis.set_major_locator(MultipleLocator(10))
+                    ax1.xaxis.set_minor_locator(AutoMinorLocator(10))
+                elif len(predicted_taxel_t5) > 150 and len(predicted_taxel_t5) < 1000:
+                    ax1.xaxis.set_major_locator(MultipleLocator(25))
+                    ax1.xaxis.set_minor_locator(AutoMinorLocator(25))
+                elif len(predicted_taxel_t5) > 1000:
+                    ax1.xaxis.set_major_locator(MultipleLocator(100))
+                    ax1.xaxis.set_minor_locator(AutoMinorLocator(100))
+
+
                 ax1.grid(which='minor')
                 ax1.grid(which='major')
                 plt.title("AV-PMN model taxel " + str(index))
@@ -492,12 +501,12 @@ class ModelTester:
         np.save(data_save_path + 'model_performance_loss_data', np.asarray(performance_data_full))
 
     def load_scalars(self):
-        self.scaler_tx = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_standard_scaler_x.pkl")
-        self.scaler_ty = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_standard_scaler_y.pkl")
-        self.scaler_tz = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_standard_scaler_z.pkl")
-        self.min_max_scalerx_full_data = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_min_max_scalar_x.pkl")
-        self.min_max_scalery_full_data = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_min_max_scalar_y.pkl")
-        self.min_max_scalerz_full_data = np.load("/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/tactile_min_max_scalar.pkl")
+        self.scaler_tx = np.load(scaler_dir + "tactile_standard_scaler_x.pkl")
+        self.scaler_ty = np.load(scaler_dir + "tactile_standard_scaler_y.pkl")
+        self.scaler_tz = np.load(scaler_dir + "tactile_standard_scaler_z.pkl")
+        self.min_max_scalerx_full_data = np.load(scaler_dir + "tactile_min_max_scalar_x.pkl")
+        self.min_max_scalery_full_data = np.load(scaler_dir + "tactile_min_max_scalar_y.pkl")
+        self.min_max_scalerz_full_data = np.load(scaler_dir + "tactile_min_max_scalar.pkl")
 
 
 class PSNR:

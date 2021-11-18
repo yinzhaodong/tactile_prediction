@@ -14,16 +14,16 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTVP/saved_models/prelim_"
-train_data_dir = "/home/user/Robotics/Data_sets/data_collection_preliminary/train_image_dataset_10c_10h/"
-scaler_dir = "/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/"
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTVP/TP_single_object_"
+train_data_dir = "/home/user/Robotics/Data_sets/TP_single_object/train_image_dataset_10c_10h/"
+scaler_dir = "/home/user/Robotics/Data_sets/TP_single_object/scalar_info/"
 
 # unique save title:
 model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
 os.mkdir(model_save_path)
 
 seed = 42
-epochs = 100
+epochs = 50
 batch_size = 32
 learning_rate = 1e-3
 context_frames = 10
@@ -78,6 +78,7 @@ class FullDataSet:
         experiment_number = np.load(train_data_dir + value[3])
         time_steps = np.load(train_data_dir + value[4])
         return [robot_data.astype(np.float32), np.array(tactile_images).astype(np.float32), experiment_number, time_steps]
+
 
 
 class ConvLSTMCell(nn.Module):
@@ -216,7 +217,7 @@ class ModelTrainer:
             else:
                 if best_val_loss > val_losses / index__:
                     print("saving model")
-                    torch.save(self.full_model, model_save_path + "ACTVP_model")
+                    torch.save(self.full_model, model_save_path + "ACPixelMotionNet_model")
                     best_val_loss = val_losses / index__
                 early_stop_clock = 0
                 previous_val_mean_loss = val_losses / index__

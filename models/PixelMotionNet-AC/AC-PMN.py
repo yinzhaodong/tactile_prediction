@@ -14,9 +14,9 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/prelim_"
-train_data_dir = "/home/user/Robotics/Data_sets/data_collection_preliminary/train_image_dataset_10c_10h/"
-scaler_dir = "/home/user/Robotics/Data_sets/data_collection_preliminary/scalar_info/"
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/TP_single_object_"
+train_data_dir = "/home/user/Robotics/Data_sets/TP_single_object/train_image_dataset_10c_10h/"
+scaler_dir = "/home/user/Robotics/Data_sets/TP_single_object/scalar_info/"
 
 # unique save title:
 model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
@@ -133,7 +133,7 @@ class ACPixelMotionNet(nn.Module):
         self.upsample2 = nn.Upsample(scale_factor=2)
 
         self.encoder = nn.Sequential(
-            nn.Conv2d(1, 16, 3, stride=3, padding=1),  # b, 16, 10, 10
+            nn.Conv2d(1, 16, 3, stride=3, padding=1),  # b, 16 , 10, 10
             nn.ReLU(True),
             nn.MaxPool2d(2, stride=2),  # b, 16, 5, 5
             nn.Conv2d(16, 8, 3, stride=2, padding=1),  # b, 8, 3, 3
