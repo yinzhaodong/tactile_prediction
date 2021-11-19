@@ -23,7 +23,7 @@ model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y
 os.mkdir(model_save_path)
 
 seed = 42
-epochs = 50
+epochs = 25
 batch_size = 32
 learning_rate = 1e-3
 context_frames = 10

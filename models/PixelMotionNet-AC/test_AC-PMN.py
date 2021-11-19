@@ -304,9 +304,10 @@ class ModelTester:
 
                 if i == 0 and new_batch != 0:
                     print("currently testing trial number: ", str(self.current_exp))
-                    # self.calc_trial_performance()
-                    self.create_test_plots(self.current_exp)
-                    self.create_difference_gifs(self.current_exp)
+                    self.calc_trial_performance()
+                    self.save_predictions(self.current_exp)
+                    # self.create_test_plots(self.current_exp)
+                    # self.create_difference_gifs(self.current_exp)
                     self.prediction_data = []
                     self.tg_back_scaled = []
                     self.tp10_back_scaled = []
@@ -316,6 +317,31 @@ class ModelTester:
                     break
 
         self.calc_test_performance()
+
+    def save_predictions(self, experiment_to_test):
+        '''
+        - Plot the descaled 48 feature tactile vector for qualitative analysis
+        - Save plots in a folder with name being the trial number.
+        '''
+        trial_groundtruth_data = []
+        trial_predicted_data_t10 = []
+        trial_predicted_data_t5 = []
+        for index in range(len(self.tg_back_scaled)):
+            for batch_number in range(len(self.tp10_back_scaled[index])):
+                if experiment_to_test == self.prediction_data[index][2].T[batch_number][0]:
+                    trial_predicted_data_t10.append(self.tp10_back_scaled[index][batch_number])
+                    trial_predicted_data_t5.append(self.tp5_back_scaled[index][batch_number])
+                    trial_groundtruth_data.append(self.tg_back_scaled[index][batch_number])
+
+        plot_save_dir = data_save_path + "test_plots_" + str(experiment_to_test)
+        try:
+            os.mkdir(plot_save_dir)
+        except:
+            "directory already exists"
+
+        np.save(plot_save_dir + '/prediction_data_gt', np.array(self.tg_back_scaled))
+        np.save(plot_save_dir + '/prediction_data_t5', np.array(self.tp5_back_scaled))
+        np.save(plot_save_dir + '/prediction_data_t10', np.array(self.tp10_back_scaled))
 
     def create_difference_gifs(self, experiment_to_test):
         '''
@@ -365,6 +391,20 @@ class ModelTester:
             os.mkdir(plot_save_dir)
         except:
             "directory already exists"
+
+        np.save(plot_save_dir + '/prediction_data_gt', np.array(self.tg_back_scaled))
+        np.save(plot_save_dir + '/prediction_data_t5', np.array(self.tp5_back_scaled))
+        np.save(plot_save_dir + '/prediction_data_t10', np.array(self.tp10_back_scaled))
+
+        if len(trial_groundtruth_data) > 300 and len(trial_groundtruth_data) > 450:
+            trim_min = 100
+            trim_max = 250
+        elif len(trial_groundtruth_data) > 450:
+            trim_min = 200
+            trim_max = 450
+        else:
+            trim_min = 0
+            trim_max = -1
 
         index = 0
         titles = ["sheerx", "sheery", "normal"]
@@ -501,12 +541,13 @@ class ModelTester:
         np.save(data_save_path + 'model_performance_loss_data', np.asarray(performance_data_full))
 
     def load_scalars(self):
-        self.scaler_tx = np.load(scaler_dir + "tactile_standard_scaler_x.pkl")
-        self.scaler_ty = np.load(scaler_dir + "tactile_standard_scaler_y.pkl")
-        self.scaler_tz = np.load(scaler_dir + "tactile_standard_scaler_z.pkl")
-        self.min_max_scalerx_full_data = np.load(scaler_dir + "tactile_min_max_scalar_x.pkl")
-        self.min_max_scalery_full_data = np.load(scaler_dir + "tactile_min_max_scalar_y.pkl")
-        self.min_max_scalerz_full_data = np.load(scaler_dir + "tactile_min_max_scalar.pkl")
+        self.scaler_tx = load(open(scaler_dir + "tactile_standard_scaler_x.pkl", 'rb'))
+        self.scaler_ty = load(open(scaler_dir + "tactile_standard_scaler_y.pkl", 'rb'))
+        self.scaler_tz = load(open(scaler_dir + "tactile_standard_scaler_z.pkl", 'rb'))
+        self.min_max_scalerx_full_data = load(open(scaler_dir + "tactile_min_max_scalar_x.pkl", 'rb'))
+        self.min_max_scalery_full_data = load(open(scaler_dir + "tactile_min_max_scalar_y.pkl", 'rb'))
+        self.min_max_scalerz_full_data = load(open(scaler_dir + "tactile_min_max_scalar.pkl", 'rb'))
+
 
 
 class PSNR:

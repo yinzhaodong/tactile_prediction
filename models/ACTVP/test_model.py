@@ -304,9 +304,9 @@ class ModelTester:
         - Save plots in a folder with name being the trial number.
         '''
 
-        trial_groundtruth_data = []
+        trial_groundtruth_data   = []
         trial_predicted_data_t10 = []
-        trial_predicted_data_t5 = []
+        trial_predicted_data_t5  = []
         for index in range(len(self.tg_back_scaled)):
             for batch_number in range(len(self.tp10_back_scaled[index])):
                 if experiment_to_test == self.prediction_data[index][2].T[batch_number][0]:

@@ -50,8 +50,8 @@ class BatchGenerator:
         dataset_train = FullDataSet(self.data_map, train=True)
         dataset_validate = FullDataSet(self.data_map, validation=True)
         transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=4)
+        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True, num_workers=4)
         self.data_map = []
         return train_loader, validation_loader
 
@@ -78,7 +78,6 @@ class FullDataSet:
         experiment_number = np.load(train_data_dir + value[3])
         time_steps = np.load(train_data_dir + value[4])
         return [robot_data.astype(np.float32), np.array(tactile_images).astype(np.float32), experiment_number, time_steps]
-
 
 
 class ConvLSTMCell(nn.Module):
