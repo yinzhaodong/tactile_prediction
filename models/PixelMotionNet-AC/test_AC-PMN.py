@@ -16,13 +16,14 @@ import torch.optim as optim
 import torchvision
 
 from tqdm import tqdm
+from pickle import load
 from datetime import datetime
 from torch.utils.data import Dataset
 
-model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/TP_single_object_model_16_11_2021_11_32/ACPixelMotionNet_model"
-data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/TP_single_object_model_16_11_2021_11_32/"
-test_data_dir   = "/home/user/Robotics/Data_sets/TP_single_object/test_image_dataset_10c_10h/"
-scaler_dir      = "/home/user/Robotics/Data_sets/TP_single_object/scalar_info/"
+model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/box_only_dataset_model_25_11_2021_14_10/ACPixelMotionNet_model"
+data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/box_only_dataset_model_25_11_2021_14_10/"
+test_data_dir   = "/home/user/Robotics/Data_sets/box_only_dataset/test_image_dataset_10c_10h/"
+scaler_dir      = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
 seed = 42
 epochs = 100
@@ -74,7 +75,8 @@ class FullDataSet:
 
         experiment_number = np.load(test_data_dir + value[3])
         time_steps = np.load(test_data_dir + value[4])
-        return [robot_data.astype(np.float32), np.array(tactile_images).astype(np.float32), experiment_number, time_steps]
+        meta = test_data_dir + value[5]
+        return [robot_data.astype(np.float32), np.array(tactile_images).astype(np.float32), experiment_number, time_steps, meta]
 
 
 class ConvLSTMCell(nn.Module):
@@ -240,8 +242,9 @@ class ModelTester:
         self.performance_data = []
         self.prediction_data  = []
         self.tg_back_scaled   = []
-        self.tp10_back_scaled = []
+        self.tp1_back_scaled = []
         self.tp5_back_scaled = []
+        self.tp10_back_scaled = []
         self.current_exp      = 0
 
         for index, batch_features in enumerate(self.test_full_loader):
@@ -251,6 +254,7 @@ class ModelTester:
 
             experiment_number = batch_features[2].permute(1,0)[context_frames:]
             time_steps = batch_features[3].permute(1,0)[context_frames:]
+            self.meta = batch_features[4][0]
 
             current_batch = 0
             new_batch = 0
@@ -277,41 +281,49 @@ class ModelTester:
 
                 # convert back to 48 feature tactile readings for plotting:
                 gt = []
+                p1 = []
                 p5 = []
                 p10 = []
                 for batch_value in range(tactile_predictions_cut.shape[1]):
                     gt.append(cv2.resize(tactile_cut[context_frames-1][batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
+                    p1.append(cv2.resize(tactile_predictions_cut[0][batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
                     p5.append(cv2.resize(tactile_predictions_cut[4][batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
                     p10.append(cv2.resize(tactile_predictions_cut[9][batch_value].permute(1, 2, 0).cpu().detach().numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
 
                 gt = np.array(gt)
+                p1 = np.array(p1)
                 p5 = np.array(p5)
                 p10 = np.array(p10)
                 descalled_data = []
-                for data in [gt, p5, p10]:
-                    (tx, ty, tz) = np.split(data, 3, axis=1)
-                    xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tx)
-                    xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(ty)
-                    xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tz)
-                    xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
-                    xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
-                    xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
-                    descalled_data.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
 
-                self.tg_back_scaled.append(descalled_data[0])
-                self.tp5_back_scaled.append(descalled_data[1])
-                self.tp10_back_scaled.append(descalled_data[2])
+                # print(gt.shape, p1.shape, p5.shape, p10.shape, gt.shape[0])
+                if gt.shape[0] != 0:
+                    for data in [gt, p1, p5, p10]:
+                        (tx, ty, tz) = np.split(data, 3, axis=1)
+                        xela_x_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(tx)
+                        xela_y_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(ty)
+                        xela_z_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(tz)
+                        xela_x_inverse_full = self.scaler_tx.inverse_transform(xela_x_inverse_minmax)
+                        xela_y_inverse_full = self.scaler_ty.inverse_transform(xela_y_inverse_minmax)
+                        xela_z_inverse_full = self.scaler_tz.inverse_transform(xela_z_inverse_minmax)
+                        descalled_data.append(np.concatenate((xela_x_inverse_full, xela_y_inverse_full, xela_z_inverse_full), axis=1))
+
+                    self.tg_back_scaled.append(descalled_data[0])
+                    self.tp1_back_scaled.append(descalled_data[1])
+                    self.tp5_back_scaled.append(descalled_data[2])
+                    self.tp10_back_scaled.append(descalled_data[3])
 
                 if i == 0 and new_batch != 0:
                     print("currently testing trial number: ", str(self.current_exp))
-                    self.calc_trial_performance()
+                    # self.calc_trial_performance()
                     self.save_predictions(self.current_exp)
                     # self.create_test_plots(self.current_exp)
                     # self.create_difference_gifs(self.current_exp)
                     self.prediction_data = []
                     self.tg_back_scaled = []
-                    self.tp10_back_scaled = []
+                    self.tp1_back_scaled = []
                     self.tp5_back_scaled = []
+                    self.tp10_back_scaled = []
                     self.current_exp += 1
                 if i== 0 and new_batch == 0:
                     break
@@ -324,13 +336,15 @@ class ModelTester:
         - Save plots in a folder with name being the trial number.
         '''
         trial_groundtruth_data = []
-        trial_predicted_data_t10 = []
+        trial_predicted_data_t1 = []
         trial_predicted_data_t5 = []
+        trial_predicted_data_t10 = []
         for index in range(len(self.tg_back_scaled)):
             for batch_number in range(len(self.tp10_back_scaled[index])):
                 if experiment_to_test == self.prediction_data[index][2].T[batch_number][0]:
-                    trial_predicted_data_t10.append(self.tp10_back_scaled[index][batch_number])
+                    trial_predicted_data_t1.append(self.tp1_back_scaled[index][batch_number])
                     trial_predicted_data_t5.append(self.tp5_back_scaled[index][batch_number])
+                    trial_predicted_data_t10.append(self.tp10_back_scaled[index][batch_number])
                     trial_groundtruth_data.append(self.tg_back_scaled[index][batch_number])
 
         plot_save_dir = data_save_path + "test_plots_" + str(experiment_to_test)
@@ -339,9 +353,18 @@ class ModelTester:
         except:
             "directory already exists"
 
-        np.save(plot_save_dir + '/prediction_data_gt', np.array(self.tg_back_scaled))
-        np.save(plot_save_dir + '/prediction_data_t5', np.array(self.tp5_back_scaled))
-        np.save(plot_save_dir + '/prediction_data_t10', np.array(self.tp10_back_scaled))
+        np.save(plot_save_dir + '/trial_groundtruth_data', np.array(trial_groundtruth_data))
+        np.save(plot_save_dir + '/prediction_data_t1', np.array(trial_predicted_data_t1))
+        np.save(plot_save_dir + '/prediction_data_t5', np.array(trial_predicted_data_t5))
+        np.save(plot_save_dir + '/prediction_data_t10', np.array(trial_predicted_data_t10))
+
+        meta_data_file_name = str(np.load(self.meta)[0]) + "/meta_data.csv"
+        meta_data = []
+        with open(meta_data_file_name, 'r') as f:  # rb
+            reader = csv.reader(f)
+            for row in reader:
+                meta_data.append(row)
+        np.save(plot_save_dir + '/meta_data', np.array(meta_data))
 
     def create_difference_gifs(self, experiment_to_test):
         '''

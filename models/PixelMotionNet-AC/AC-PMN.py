@@ -14,9 +14,9 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/TP_single_object_"
-train_data_dir = "/home/user/Robotics/Data_sets/TP_single_object/train_image_dataset_10c_10h/"
-scaler_dir = "/home/user/Robotics/Data_sets/TP_single_object/scalar_info/"
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/box_only_dataset_"
+train_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h/"
+scaler_dir = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
 # unique save title:
 model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
@@ -50,8 +50,8 @@ class BatchGenerator:
         dataset_train = FullDataSet(self.data_map, train=True)
         dataset_validate = FullDataSet(self.data_map, validation=True)
         transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=4)
+        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True, num_workers=4)
         self.data_map = []
         return train_loader, validation_loader
 
