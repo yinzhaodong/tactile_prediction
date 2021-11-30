@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTVP/TP_single_object_"
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTVP/box_only_"
 train_data_dir = "/home/user/Robotics/Data_sets/TP_single_object/train_image_dataset_10c_10h/"
 scaler_dir = "/home/user/Robotics/Data_sets/TP_single_object/scalar_info/"
 

@@ -4,7 +4,9 @@ import os
 import csv
 import cv2
 import copy
+import math
 import numpy as np
+import pandas as pd
 
 from matplotlib import pyplot as plt
 from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)
@@ -315,8 +317,8 @@ class ModelTester:
 
                 if i == 0 and new_batch != 0:
                     print("currently testing trial number: ", str(self.current_exp))
-                    # self.calc_trial_performance()
-                    self.save_predictions(self.current_exp)
+                    self.calc_trial_performance()
+                    # self.save_predictions(self.current_exp)
                     # self.create_test_plots(self.current_exp)
                     # self.create_difference_gifs(self.current_exp)
                     self.prediction_data = []
@@ -327,6 +329,8 @@ class ModelTester:
                     self.current_exp += 1
                 if i== 0 and new_batch == 0:
                     break
+
+        print("Hello :D ")
 
         self.calc_test_performance()
 
@@ -471,7 +475,6 @@ class ModelTester:
                     ax1.xaxis.set_major_locator(MultipleLocator(100))
                     ax1.xaxis.set_minor_locator(AutoMinorLocator(100))
 
-
                 ax1.grid(which='minor')
                 ax1.grid(which='major')
                 plt.title("AV-PMN model taxel " + str(index))
@@ -487,46 +490,56 @@ class ModelTester:
         ssim_calc = SSIM(window_size=32)
         psnr_calc = PSNR()
 
+        meta_data_file_name = str(np.load(self.meta)[0]) + "/meta_data.csv"
+        meta_data = []
+        with open(meta_data_file_name, 'r') as f:  # rb
+            reader = csv.reader(f)
+            for row in reader:
+                meta_data.append(row)
+        seen = meta_data[1][2]
+
         index = 0
         index_ssim = 0
         with torch.no_grad():
             for batch_set in self.prediction_data:
                 index += 1
 
-                ## MAE:
-                mae_loss    += self.criterion(batch_set[0], batch_set[1]).item()
-                mae_loss_1  += self.criterion(batch_set[0][0], batch_set[1][0]).item()
-                mae_loss_5  += self.criterion(batch_set[0][4], batch_set[1][4]).item()
-                mae_loss_10 += self.criterion(batch_set[0][9], batch_set[1][9]).item()
-                mae_loss_x  += self.criterion(batch_set[0][:,:,0], batch_set[1][:,:,0]).item()
-                mae_loss_y  += self.criterion(batch_set[0][:,:,1], batch_set[1][:,:,1]).item()
-                mae_loss_z  += self.criterion(batch_set[0][:,:,2], batch_set[1][:,:,2]).item()
-
-                ## SSIM:
-                for i in range(len(batch_set)):
-                    index_ssim += 1
-                    ssim_loss += ssim_calc(batch_set[0][i], batch_set[1][i])
-                ssim_loss_1  += ssim_calc(batch_set[0][0], batch_set[1][0])
-                ssim_loss_5  += ssim_calc(batch_set[0][4], batch_set[1][4])
-                ssim_loss_10 += ssim_calc(batch_set[0][9], batch_set[1][9])
-                ssim_loss_x  += ssim_calc(batch_set[0][:,:,0], batch_set[1][:,:,0])
-                ssim_loss_y  += ssim_calc(batch_set[0][:,:,1], batch_set[1][:,:,1])
-                ssim_loss_z  += ssim_calc(batch_set[0][:,:,2], batch_set[1][:,:,2])
-
-                ## PSNR:
-                psnr_loss    += psnr_calc(batch_set[0], batch_set[1])
-                psnr_loss_1  += psnr_calc(batch_set[0][0], batch_set[1][0])
-                psnr_loss_5  += psnr_calc(batch_set[0][4], batch_set[1][4])
-                psnr_loss_10 += psnr_calc(batch_set[0][9], batch_set[1][9])
-                psnr_loss_x  += psnr_calc(batch_set[0][:,:,0], batch_set[1][:,:,0])
-                psnr_loss_y  += psnr_calc(batch_set[0][:,:,1], batch_set[1][:,:,1])
-                psnr_loss_z  += psnr_calc(batch_set[0][:,:,2], batch_set[1][:,:,2])
+                mae_loss_check = self.criterion (batch_set[0], batch_set[1]).item ()
+                if math.isnan(mae_loss_check):
+                    index -= 1
+                else:
+                    ## MAE:
+                    mae_loss    += mae_loss_check
+                    mae_loss_1  += self.criterion(batch_set[0][0], batch_set[1][0]).item()
+                    mae_loss_5  += self.criterion(batch_set[0][4], batch_set[1][4]).item()
+                    mae_loss_10 += self.criterion(batch_set[0][9], batch_set[1][9]).item()
+                    mae_loss_x  += self.criterion(batch_set[0][:,:,0], batch_set[1][:,:,0]).item()
+                    mae_loss_y  += self.criterion(batch_set[0][:,:,1], batch_set[1][:,:,1]).item()
+                    mae_loss_z  += self.criterion(batch_set[0][:,:,2], batch_set[1][:,:,2]).item()
+                    ## SSIM:
+                    for i in range(len(batch_set)):
+                        index_ssim += 1
+                        ssim_loss += ssim_calc(batch_set[0][i], batch_set[1][i])
+                    ssim_loss_1  += ssim_calc(batch_set[0][0], batch_set[1][0])
+                    ssim_loss_5  += ssim_calc(batch_set[0][4], batch_set[1][4])
+                    ssim_loss_10 += ssim_calc(batch_set[0][9], batch_set[1][9])
+                    ssim_loss_x  += ssim_calc(batch_set[0][:,:,0], batch_set[1][:,:,0])
+                    ssim_loss_y  += ssim_calc(batch_set[0][:,:,1], batch_set[1][:,:,1])
+                    ssim_loss_z  += ssim_calc(batch_set[0][:,:,2], batch_set[1][:,:,2])
+                    ## PSNR:
+                    psnr_loss    += psnr_calc(batch_set[0], batch_set[1])
+                    psnr_loss_1  += psnr_calc(batch_set[0][0], batch_set[1][0])
+                    psnr_loss_5  += psnr_calc(batch_set[0][4], batch_set[1][4])
+                    psnr_loss_10 += psnr_calc(batch_set[0][9], batch_set[1][9])
+                    psnr_loss_x  += psnr_calc(batch_set[0][:,:,0], batch_set[1][:,:,0])
+                    psnr_loss_y  += psnr_calc(batch_set[0][:,:,1], batch_set[1][:,:,1])
+                    psnr_loss_z  += psnr_calc(batch_set[0][:,:,2], batch_set[1][:,:,2])
 
         self.performance_data.append([mae_loss/index, mae_loss_1/index, mae_loss_5/index, mae_loss_10/index, mae_loss_x/index,
                                 mae_loss_y/index, mae_loss_z/index, ssim_loss/index_ssim, ssim_loss_1/index,
                                 ssim_loss_5/index, ssim_loss_10/index, ssim_loss_x/index, ssim_loss_y/index,
                                 ssim_loss_z/index, psnr_loss/index, psnr_loss_1/index, psnr_loss_5/index,
-                                psnr_loss_10/index, psnr_loss_x/index, psnr_loss_y/index, psnr_loss_z/index])
+                                psnr_loss_10/index, psnr_loss_x/index, psnr_loss_y/index, psnr_loss_z/index, seen])
 
     def calc_test_performance(self):
         '''
@@ -534,7 +547,6 @@ class ModelTester:
         - Save Plots for qualitative analysis
         - Slip classification test
         '''
-
         performance_data_full = []
         performance_data_full.append(["test loss MAE(L1): ", (sum([i[0] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss MAE(L1) pred ts 1: ", (sum([i[1] for i in self.performance_data]) / len(self.performance_data))])
@@ -544,6 +556,9 @@ class ModelTester:
         performance_data_full.append(["test loss MAE(L1) pred force y: ", (sum([i[5] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss MAE(L1) pred force z: ", (sum([i[6] for i in self.performance_data]) / len(self.performance_data))])
 
+        performance_data_full.append (["test loss MAE(L1) Seen objects: ", (sum([i[0] for i in self.performance_data if i[-1] == '1']) / len([i[0] for i in self.performance_data if i[-1] == '1']))])
+        performance_data_full.append (["test loss MAE(L1) Novel objects: ", (sum([i[0] for i in self.performance_data if i[-1] == '0']) / len([i[0] for i in self.performance_data if i[-1] == '0']))])
+
         performance_data_full.append(["test loss SSIM: ", (sum([i[7] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss SSIM pred ts 1: ", (sum([i[8] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss SSIM pred ts 5: ", (sum([i[9] for i in self.performance_data]) / len(self.performance_data))])
@@ -552,6 +567,9 @@ class ModelTester:
         performance_data_full.append(["test loss SSIM pred force y: ", (sum([i[12] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss SSIM pred force z: ", (sum([i[13] for i in self.performance_data]) / len(self.performance_data))])
 
+        performance_data_full.append (["test loss SSIM Seen objects: ", (sum([i[7] for i in self.performance_data if i[-1] == '1']) / len([i[7] for i in self.performance_data if i[-1] == '1']))])
+        performance_data_full.append (["test loss SSIM Novel objects: ", (sum([i[7] for i in self.performance_data if i[-1] == '0']) / len([i[7] for i in self.performance_data if i[-1] == '0']))])
+
         performance_data_full.append(["test loss PSNR: ", (sum([i[14] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss PSNR pred ts 1: ", (sum([i[15] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss PSNR pred ts 5: ", (sum([i[16] for i in self.performance_data]) / len(self.performance_data))])
@@ -559,6 +577,10 @@ class ModelTester:
         performance_data_full.append(["test loss PSNR pred force x: ", (sum([i[18] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss PSNR pred force y: ", (sum([i[19] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss PSNR pred force z: ", (sum([i[20] for i in self.performance_data]) / len(self.performance_data))])
+
+        performance_data_full.append (["test loss PSNR Seen objects: ", (sum([i[14] for i in self.performance_data if i[-1] == '1']) / len([i[14] for i in self.performance_data if i[-1] == '1']))])
+        performance_data_full.append (["test loss PSNR Novel objects: ", (sum([i[14] for i in self.performance_data if i[-1] == '0']) / len([i[14] for i in self.performance_data if i[-1] == '0']))])
+
 
         [print (i) for i in performance_data_full]
         np.save(data_save_path + 'model_performance_loss_data', np.asarray(performance_data_full))
