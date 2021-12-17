@@ -1,43 +1,51 @@
 # -*- coding: utf-8 -*-
 # RUN IN PYTHON 3
+
 import os
 import csv
 import cv2
-import copy
 import math
-import numpy as np
-import pandas as pd
 
-from matplotlib import pyplot as plt
-from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)
-from matplotlib.animation import FuncAnimation
-
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import torchvision
-
-from tqdm import tqdm
 from pickle import load
-from datetime import datetime
 from torch.utils.data import Dataset
 
-model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/box_only_dataset_model_25_11_2021_14_10/ACPixelMotionNet_model"
-data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/box_only_dataset_model_25_11_2021_14_10/"
-test_data_dir   = "/home/user/Robotics/Data_sets/box_only_dataset/test_image_dataset_10c_10h/"
+import numpy as np
+from tqdm import tqdm
+
+import torch
+import torchvision
+import torch.nn as nn
+import torch.optim as optim
+
+import sv2p.cdna as cdna
+from sv2p.ssim import DSSIM
+from sv2p.criteria import RotationInvarianceLoss
+
+model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/CDNA/saved_models/model_30_11_2021_15_24/CDNA_model.zip"
+data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/CDNA/saved_models/model_30_11_2021_15_24/"
+test_data_dir   = "/home/user/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h_64/"
 scaler_dir      = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
-train = False
-
+lr = 0.001
 seed = 42
-epochs = 100
-batch_size = 32
-learning_rate = 1e-3
+mfreg = 0.1
+seqlen = 20
+krireg = 0.1
+n_masks = 10
+indices =(0.9, 0.1)
+max_epoch = 100
+batch_size = 8
+in_channels = 3
+cond_channels = 0
 context_frames = 10
-sequence_length = 20
-
 train_percentage = 0.9
 validation_percentage = 0.1
+
+device = "cuda"
+warm_start = False
+dataset_name = "TactileSingle"
+criterion_name = "L1"
+scheduled_sampling_k = False
 
 torch.manual_seed(seed)
 torch.backends.cudnn.benchmark = False
@@ -83,169 +91,22 @@ class FullDataSet:
         return [robot_data.astype(np.float32), np.array(tactile_images).astype(np.float32), experiment_number, time_steps, meta]
 
 
-class ConvLSTMCell(nn.Module):
-    def __init__(self, input_dim, hidden_dim, kernel_size, bias):
-        super(ConvLSTMCell, self).__init__()
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.kernel_size = kernel_size
-        self.padding = kernel_size[0] // 2, kernel_size[1] // 2
-        self.bias = bias
-        self.conv = nn.Conv2d(in_channels=self.input_dim + self.hidden_dim, out_channels=4 * self.hidden_dim,
-                              kernel_size=self.kernel_size, padding=self.padding, bias=self.bias)
-
-    def forward(self, input_tensor, cur_state):
-        h_cur, c_cur = cur_state
-        combined = torch.cat([input_tensor, h_cur], dim=1)  # concatenate along channel axis
-        combined_conv = self.conv(combined)
-        cc_i, cc_f, cc_o, cc_g = torch.split(combined_conv, self.hidden_dim, dim=1)
-        i = torch.sigmoid(cc_i)
-        f = torch.sigmoid(cc_f)
-        o = torch.sigmoid(cc_o)
-        g = torch.tanh(cc_g)
-        c_next = f * c_cur + i * g
-        h_next = o * torch.tanh(c_next)
-        return h_next, c_next
-
-    def init_hidden(self, batch_size, image_size):
-        height, width = image_size
-        return(torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device).to(device),
-                torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device).to(device))
-
-
-class ACPixelMotionNet(nn.Module):
-    def __init__(self):
-        super(ACPixelMotionNet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1).cuda()
-        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1).cuda()
-        self.convlstm1 = ConvLSTMCell(input_dim=64, hidden_dim=32, kernel_size=(3, 3), bias=True).cuda()
-        self.convlstm2 = ConvLSTMCell(input_dim=44, hidden_dim=32, kernel_size=(3, 3), bias=True).cuda()
-        self.upconv1 = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, stride=1, padding=1).cuda()
-        self.upconv2 = nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1).cuda()
-        self.outconv = nn.Conv2d(in_channels=32, out_channels=3, kernel_size=3, stride=1, padding=1).cuda()
-
-        self.relu1 = nn.ReLU(True)
-        self.relu2 = nn.ReLU(True)
-        self.relu3 = nn.ReLU(True)
-        self.relu4 = nn.ReLU(True)
-        self.tanh = nn.Tanh()
-
-        self.maxpool1 = nn.MaxPool2d(2, stride=2)
-        self.maxpool2 = nn.MaxPool2d(2, stride=2)
-        self.upsample1 = nn.Upsample(scale_factor=2)
-        self.upsample2 = nn.Upsample(scale_factor=2)
-
-        self.encoder = nn.Sequential(
-            nn.Conv2d(1, 16, 3, stride=3, padding=1),  # b, 16 , 10, 10
-            nn.ReLU(True),
-            nn.MaxPool2d(2, stride=2),  # b, 16, 5, 5
-            nn.Conv2d(16, 8, 3, stride=2, padding=1),  # b, 8, 3, 3
-            nn.ReLU(True),
-            nn.MaxPool2d(2, stride=1)  # b, 8, 2, 2
-        )
-
-    def forward(self, tactiles, actions):
-        self.batch_size = actions.shape[1]
-        state = actions[0]
-        state.to(device)
-        batch_size__ = tactiles.shape[1]
-        hidden_1, cell_1 = self.convlstm1.init_hidden(batch_size=self.batch_size, image_size=(8,8))
-        hidden_2, cell_2 = self.convlstm2.init_hidden(batch_size=self.batch_size, image_size=(8,8))
-        outputs = []
-
-        for index, (sample_tactile, sample_action) in enumerate(zip(tactiles[0:-1].squeeze(), actions[1:].squeeze())):
-            # sample_tactile.to(device)
-            # sample_action.to(device)
-
-            if index > context_frames-1:
-                out1 = self.maxpool1(self.relu1(self.conv1(output)))
-                out2 = self.maxpool2(self.relu2(self.conv2(out1)))
-
-                hidden_1, cell_1 = self.convlstm1(input_tensor=out2, cur_state=[hidden_1, cell_1])
-
-                # Add in tiled action and state:
-                state_action = torch.cat((state, sample_action), 1)
-                robot_and_tactile = torch.cat((torch.cat(8*[torch.cat(8*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3), hidden_1.squeeze()), 1)
-
-                hidden_2, cell_2 = self.convlstm2(input_tensor=robot_and_tactile, cur_state=[hidden_2, cell_2])
-
-                out3 = self.upsample1(self.relu3(self.upconv1(hidden_2)))
-                skip_connection = torch.cat((out1, out3), axis=1)  # skip connection
-                out4 = self.upsample2(self.relu4(self.upconv2(skip_connection)))
-
-                PixelMotionMap = self.tanh(self.outconv(out4))
-                # Final addition layer:
-                output = PixelMotionMap + output
-                outputs.append(output)
-
-            else:
-                out1 = self.maxpool1(self.relu1(self.conv1(sample_tactile)))
-                out2 = self.maxpool2(self.relu2(self.conv2(out1)))
-
-                hidden_1, cell_1 = self.convlstm1(input_tensor=out2, cur_state=[hidden_1, cell_1])
-
-                # Add in tiled action and state:
-                state_action = torch.cat((state, sample_action), 1)
-                robot_and_tactile = torch.cat((torch.cat(8*[torch.cat(8*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3), hidden_1.squeeze()), 1)
-
-                hidden_2, cell_2 = self.convlstm2(input_tensor=robot_and_tactile, cur_state=[hidden_2, cell_2])
-
-                out3 = self.upsample1(self.relu3(self.upconv1(hidden_2)))
-                skip_connection = torch.cat((out1, out3), axis=1)  # skip connection
-                out4 = self.upsample2(self.relu4(self.upconv2(skip_connection)))
-
-                PixelMotionMap = self.tanh(self.outconv(out4))
-                # Final addition layer:
-                output = PixelMotionMap + sample_tactile
-
-                last_output = output
-
-        outputs = [last_output] + outputs
-        return torch.stack(outputs)
-
-
-class image_player():
-    def __init__(self, images, save_name, feature, experiment_to_test):
-        self.feature = feature
-        self.save_name = save_name
-        self.experiment_to_test = experiment_to_test
-        self.file_save_name = data_save_path + 'test_plots_' + str(self.experiment_to_test) + '/' + self.save_name + '_feature_' + str(self.feature) + '.gif'
-        print(self.file_save_name)
-        self.run_the_tape(images)
-
-    def grab_frame(self):
-        frame = self.images[self.indexyyy][:, :, self.feature] * 255
-        return frame
-
-    def update(self, i):
-        plt.title(i)
-        self.im1.set_data(self.grab_frame())
-        self.indexyyy += 1
-        if self.indexyyy == len(self.images):
-            self.indexyyy = 0
-
-    def run_the_tape(self, images):
-        self.indexyyy = 0
-        self.images = images
-        ax1 = plt.subplot(1, 2, 1)
-        self.im1 = ax1.imshow(self.grab_frame(), cmap='gray', vmin=0, vmax=255)
-        ani = FuncAnimation(plt.gcf(), self.update, interval=20.8, save_count=len(images), repeat=False)
-        ani.save(self.file_save_name)
-
-
-class ModelTester:
+class ModelTester():
     def __init__(self):
         self.test_full_loader = BG.load_full_data()
 
         # load model:
-        self.full_model = ACPixelMotionNet()
-        self.full_model = torch.load(model_path)
+        self.full_model = torch.load(model_path).to(device)
         self.full_model.eval()
 
-        self.criterion = nn.L1Loss()
-        self.optimizer = optim.Adam(self.full_model.parameters(), lr=learning_rate)
-
         self.load_scalars()
+
+        self.stat_names = 'predloss', 'kernloss', 'maskloss', 'loss'
+        self.optimizer = optim.Adam(self.full_model.parameters(), lr=lr)
+        self.criterion = {'L1': nn.L1Loss(), 'L2': nn.MSELoss(),
+                          'DSSIM': DSSIM(self.full_model.in_channels),
+                         }[criterion_name].to(device)
+        self.kernel_criterion = RotationInvarianceLoss().to(device)
 
     def test_full_model(self):
         self.performance_data = []
@@ -254,17 +115,13 @@ class ModelTester:
         self.tp1_back_scaled = []
         self.tp5_back_scaled = []
         self.tp10_back_scaled = []
-        self.tg = []
-        self.tp1 = []
-        self.tp5 = []
-        self.tp10 = []
         self.current_exp      = 0
         self.objects = []
 
         for index, batch_features in enumerate(self.test_full_loader):
             tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
             action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
-            tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)  # Step 3. Run our forward pass.
+            tactile_predictions = self.SV2P_pass_through(tactile, action)
 
             experiment_number = batch_features[2].permute(1,0)[context_frames:]
             time_steps = batch_features[3].permute(1,0)[context_frames:]
@@ -327,47 +184,40 @@ class ModelTester:
                     self.tp5_back_scaled.append(descalled_data[2])
                     self.tp10_back_scaled.append(descalled_data[3])
 
-                    self.tg.append(gt)
-                    self.tp1.append(p1)
-                    self.tp5.append(p5)
-                    self.tp10.append(p10)
-
                 if i == 0 and new_batch != 0:
-                    print ("currently testing trial number: ", str (self.current_exp))
-
-                    # if train:
-                    #     self.calc_train_trial_performance()
-                    # else:
-                    #     self.calc_trial_performance()
-
-                    self.save_predictions (self.current_exp, scaled=True)
-                    self.tg_back_scaled = self.tg
-                    self.tp1_back_scaled = self.tp1
-                    self.tp5_back_scaled = self.tp5
-                    self.tp10_back_scaled = self.tp10
-                    self.save_predictions (self.current_exp, scaled=False)
-
+                    print("currently testing trial number: ", str(self.current_exp))
+                    self.calc_trial_performance()
+                    self.save_predictions(self.current_exp)
+                    self.calc_train_trial_performance()
                     self.prediction_data = []
                     self.tg_back_scaled = []
                     self.tp1_back_scaled = []
                     self.tp5_back_scaled = []
                     self.tp10_back_scaled = []
-                    self.tg = []
-                    self.tp1 = []
-                    self.tp5 = []
-                    self.tp10 = []
-
                     self.current_exp += 1
-                if i == 0 and new_batch == 0:
+                if i== 0 and new_batch == 0:
                     break
 
-        print ("Hello :D ")
+        # self.calc_test_performance()
+        self.calc_train_performance()
 
-        # if train:
-        #     self.calc_train_performance()
-        # else:
-        #     self.calc_test_performance()
+    def SV2P_pass_through(self, tactiles, actions, validation=False):
+        hidden = None
+        outputs = []
+        state = actions[0].to(device)
+        with torch.no_grad():
+            for index, (sample_tactile, sample_action) in enumerate(zip(tactiles[0:-1].squeeze(), actions[1:].squeeze())):
+                state_action = torch.cat((state, sample_action), 1)
+                tsa = torch.cat(8*[torch.cat(8*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3)
+                if index > context_frames-1:
+                    predictions_t, hidden, cdna_kerns_t, masks_t = self.full_model(predictions_t, conditions=tsa, hidden_states=hidden)
+                    outputs.append(predictions_t)
+                else:
+                    predictions_t, hidden, cdna_kerns_t, masks_t = self.full_model(sample_tactile, conditions=tsa, hidden_states=hidden)
+                    last_output = predictions_t
+        outputs = [last_output] + outputs
 
+        return torch.stack(outputs)
 
     def calc_train_trial_performance(self):
         mae_loss, mae_loss_1, mae_loss_5, mae_loss_10, mae_loss_x, mae_loss_y, mae_loss_z = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -425,9 +275,9 @@ class ModelTester:
             performance_data_full.append(["test loss MAE(L1) Trained object " + str(object) + ": ", (sum([i[0] for i in self.performance_data if i[-1] == str(object)]) / len([i[0] for i in self.performance_data if i[-1] == str(object)]))])
 
         [print (i) for i in performance_data_full]
-        # np.save(data_save_path + 'TRAIN_model_performance_loss_data', np.asarray(performance_data_full))
+        np.save(data_save_path + 'TRAIN_model_performance_loss_data', np.asarray(performance_data_full))
 
-    def save_predictions(self, experiment_to_test, scaled):
+    def save_predictions(self, experiment_to_test):
         '''
         - Plot the descaled 48 feature tactile vector for qualitative analysis
         - Save plots in a folder with name being the trial number.
@@ -436,25 +286,15 @@ class ModelTester:
         trial_predicted_data_t1 = []
         trial_predicted_data_t5 = []
         trial_predicted_data_t10 = []
-        for index in range (len(self.tg_back_scaled)):
-            for batch_number in range (len (self.tp10_back_scaled[index])):
+        for index in range(len(self.tg_back_scaled)):
+            for batch_number in range(len(self.tp10_back_scaled[index])):
                 if experiment_to_test == self.prediction_data[index][2].T[batch_number][0]:
-                    trial_predicted_data_t1.append (self.tp1_back_scaled[index][batch_number])
-                    trial_predicted_data_t5.append (self.tp5_back_scaled[index][batch_number])
-                    trial_predicted_data_t10.append (self.tp10_back_scaled[index][batch_number])
-                    trial_groundtruth_data.append (self.tg_back_scaled[index][batch_number])
+                    trial_predicted_data_t1.append(self.tp1_back_scaled[index][batch_number])
+                    trial_predicted_data_t5.append(self.tp5_back_scaled[index][batch_number])
+                    trial_predicted_data_t10.append(self.tp10_back_scaled[index][batch_number])
+                    trial_groundtruth_data.append(self.tg_back_scaled[index][batch_number])
 
-        if scaled:
-            add = "SCALED_"
-        else:
-            add = "DESCALED_"
-
-        if train:
-            tadd = "train_"
-        else:
-            tadd = "test_"
-
-        plot_save_dir = data_save_path + tadd + add + "test_plots_" + str(experiment_to_test)
+        plot_save_dir = data_save_path + "test_plots_" + str(experiment_to_test)
         try:
             os.mkdir(plot_save_dir)
         except:
@@ -472,126 +312,13 @@ class ModelTester:
             for row in reader:
                 meta_data.append(row)
         np.save(plot_save_dir + '/meta_data', np.array(meta_data))
-        np.save(plot_save_dir + '/meta_name', np.array(meta_data_file_name))
-
-    def create_difference_gifs(self, experiment_to_test):
-        '''
-        - Create gifs showing the predicted images for a trial, the groundtruth and the difference between the two.
-        - Only at t+10
-        '''
-        plot_save_dir = data_save_path + "test_plots_" + str(self.current_exp)
-        try:
-            os.mkdir(plot_save_dir)
-        except:
-            "directory already exists"
-
-        ts_to_test = -1
-        trial_groundtruth_data_t10 = []
-        trial_predicted_data_t10   = []
-        for index in range(len(self.prediction_data)):
-            for batch_number in range(self.prediction_data[index][0].shape[1]):
-                trial_predicted_data_t10.append(self.prediction_data[index][0][ts_to_test][batch_number].permute(1, 2, 0).numpy())
-                trial_groundtruth_data_t10.append(self.prediction_data[index][1][ts_to_test][batch_number].permute(1, 2, 0).numpy())
-
-        prediction_data_to_plot_images = np.array(trial_predicted_data_t10)[:]
-        gt_data_to_plot_images = np.array(trial_groundtruth_data_t10)[:]
-        images = [abs(prediction_data_to_plot_images[i] - gt_data_to_plot_images[i]) for i in range(len(gt_data_to_plot_images))]
-
-        for feature in range(3):
-            image_player(gt_data_to_plot_images, "groundtruth_t10", feature, self.current_exp)
-            image_player(prediction_data_to_plot_images, "predicted_t10", feature, self.current_exp)
-            image_player(images, "gt10_and_pt10_difference", feature, self.current_exp)
-
-    def create_test_plots(self, experiment_to_test):
-        '''
-        - Plot the descaled 48 feature tactile vector for qualitative analysis
-        - Save plots in a folder with name being the trial number.
-        '''
-        trial_groundtruth_data = []
-        trial_predicted_data_t10 = []
-        trial_predicted_data_t5 = []
-        for index in range(len(self.tg_back_scaled)):
-            for batch_number in range(len(self.tp10_back_scaled[index])):
-                if experiment_to_test == self.prediction_data[index][2].T[batch_number][0]:
-                    trial_predicted_data_t10.append(self.tp10_back_scaled[index][batch_number])
-                    trial_predicted_data_t5.append(self.tp5_back_scaled[index][batch_number])
-                    trial_groundtruth_data.append(self.tg_back_scaled[index][batch_number])
-
-        plot_save_dir = data_save_path + "test_plots_" + str(experiment_to_test)
-        try:
-            os.mkdir(plot_save_dir)
-        except:
-            "directory already exists"
-
-        np.save(plot_save_dir + '/prediction_data_gt', np.array(self.tg_back_scaled))
-        np.save(plot_save_dir + '/prediction_data_t5', np.array(self.tp5_back_scaled))
-        np.save(plot_save_dir + '/prediction_data_t10', np.array(self.tp10_back_scaled))
-
-        if len(trial_groundtruth_data) > 300 and len(trial_groundtruth_data) > 450:
-            trim_min = 100
-            trim_max = 250
-        elif len(trial_groundtruth_data) > 450:
-            trim_min = 200
-            trim_max = 450
-        else:
-            trim_min = 0
-            trim_max = -1
-
-        index = 0
-        titles = ["sheerx", "sheery", "normal"]
-        for j in range(3):
-            for i in range(16):
-                groundtruth_taxle = []
-                predicted_taxel_t10 = []
-                predicted_taxel_t5 = []
-                for k in range(len(trial_predicted_data_t10)):
-                    predicted_taxel_t10.append(trial_predicted_data_t10[k][index])
-                    predicted_taxel_t5.append(trial_predicted_data_t5[k][index])
-                    groundtruth_taxle.append(trial_groundtruth_data[k][index])
-
-                index += 1
-
-                fig, ax1 = plt.subplots()
-                ax1.set_xlabel('time step')
-                ax1.set_ylabel('tactile reading')
-                line_1 = ax1.plot([i for i in predicted_taxel_t10], alpha=1.0, c="b", label="Pred_t10")
-                line_2 = ax1.plot([i for i in predicted_taxel_t5], alpha=1.0, c="g", label="Pred_t5")
-                line_3 = ax1.plot(groundtruth_taxle, alpha=1.0, c="r", label="Gt")
-                ax1.tick_params(axis='y')
-
-                ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-                ax2.set_ylabel('MAE between gt+t10, pred_t10')  # we already handled the x-label with ax1
-                line_4 = ax2.plot([None for i in range(10)] + [abs(pred - gt) for (gt, pred) in zip(groundtruth_taxle[10:], predicted_taxel_t10[:-10])], alpha=1.0, c="k", label="MAE")
-
-                lines = line_1 + line_2 + line_3 + line_4
-                labs = [l.get_label () for l in lines]
-
-                fig.tight_layout()  # otherwise the right y-label is slightly clipped
-                fig.subplots_adjust(top=0.90)
-                ax1.legend(lines, labs, loc="upper right")
-                if len(predicted_taxel_t5) < 150:
-                    ax1.xaxis.set_major_locator(MultipleLocator(10))
-                    ax1.xaxis.set_minor_locator(AutoMinorLocator(10))
-                elif len(predicted_taxel_t5) > 150 and len(predicted_taxel_t5) < 1000:
-                    ax1.xaxis.set_major_locator(MultipleLocator(25))
-                    ax1.xaxis.set_minor_locator(AutoMinorLocator(25))
-                elif len(predicted_taxel_t5) > 1000:
-                    ax1.xaxis.set_major_locator(MultipleLocator(100))
-                    ax1.xaxis.set_minor_locator(AutoMinorLocator(100))
-
-                ax1.grid(which='minor')
-                ax1.grid(which='major')
-                plt.title("AV-PMN model taxel " + str(index))
-                plt.savefig(plot_save_dir + '/test_plot_taxel_' + str(index) + '.png', dpi=300)
-                plt.clf()
-
 
     def calc_trial_performance(self):
         mae_loss, mae_loss_1, mae_loss_5, mae_loss_10, mae_loss_x, mae_loss_y, mae_loss_z = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         ssim_loss, ssim_loss_1, ssim_loss_5, ssim_loss_10, ssim_loss_x, ssim_loss_y, ssim_loss_z = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         psnr_loss, psnr_loss_1, psnr_loss_5, psnr_loss_10, psnr_loss_x, psnr_loss_y, psnr_loss_z = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
-        ssim_calc = SSIM(window_size=32)
+        ssim_calc = SSIM(window_size=64)
         psnr_calc = PSNR()
 
         meta_data_file_name = str(np.load(self.meta)[0]) + "/meta_data.csv"
@@ -803,4 +530,3 @@ if __name__ == "__main__":
     BG = BatchGenerator()
     MT = ModelTester()
     MT.test_full_model()
-

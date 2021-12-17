@@ -24,10 +24,8 @@ from torch.utils.data import Dataset
 
 model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/box_only_dataset_model_25_11_2021_14_10/ACPixelMotionNet_model"
 data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/box_only_dataset_model_25_11_2021_14_10/"
-test_data_dir   = "/home/user/Robotics/Data_sets/box_only_dataset/test_image_dataset_10c_10h/"
+test_data_dir   = "/home/user/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h/"
 scaler_dir      = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/"
-
-train = False
 
 seed = 42
 epochs = 100
@@ -136,7 +134,7 @@ class ACPixelMotionNet(nn.Module):
         self.upsample2 = nn.Upsample(scale_factor=2)
 
         self.encoder = nn.Sequential(
-            nn.Conv2d(1, 16, 3, stride=3, padding=1),  # b, 16 , 10, 10
+            nn.Conv2d(1, 16, 3, stride=3, padding=1),  # b, 16, 10, 10
             nn.ReLU(True),
             nn.MaxPool2d(2, stride=2),  # b, 16, 5, 5
             nn.Conv2d(16, 8, 3, stride=2, padding=1),  # b, 8, 3, 3
@@ -173,9 +171,7 @@ class ACPixelMotionNet(nn.Module):
                 skip_connection = torch.cat((out1, out3), axis=1)  # skip connection
                 out4 = self.upsample2(self.relu4(self.upconv2(skip_connection)))
 
-                PixelMotionMap = self.tanh(self.outconv(out4))
-                # Final addition layer:
-                output = PixelMotionMap + output
+                output = self.tanh(self.outconv(out4))
                 outputs.append(output)
 
             else:
@@ -194,10 +190,7 @@ class ACPixelMotionNet(nn.Module):
                 skip_connection = torch.cat((out1, out3), axis=1)  # skip connection
                 out4 = self.upsample2(self.relu4(self.upconv2(skip_connection)))
 
-                PixelMotionMap = self.tanh(self.outconv(out4))
-                # Final addition layer:
-                output = PixelMotionMap + sample_tactile
-
+                output = self.tanh(self.outconv(out4))
                 last_output = output
 
         outputs = [last_output] + outputs
@@ -248,19 +241,14 @@ class ModelTester:
         self.load_scalars()
 
     def test_full_model(self):
+        self.objects = []
         self.performance_data = []
         self.prediction_data  = []
         self.tg_back_scaled   = []
         self.tp1_back_scaled = []
         self.tp5_back_scaled = []
         self.tp10_back_scaled = []
-        self.tg = []
-        self.tp1 = []
-        self.tp5 = []
-        self.tp10 = []
         self.current_exp      = 0
-        self.objects = []
-
         for index, batch_features in enumerate(self.test_full_loader):
             tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
             action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
@@ -327,264 +315,21 @@ class ModelTester:
                     self.tp5_back_scaled.append(descalled_data[2])
                     self.tp10_back_scaled.append(descalled_data[3])
 
-                    self.tg.append(gt)
-                    self.tp1.append(p1)
-                    self.tp5.append(p5)
-                    self.tp10.append(p10)
-
                 if i == 0 and new_batch != 0:
-                    print ("currently testing trial number: ", str (self.current_exp))
-
-                    # if train:
-                    #     self.calc_train_trial_performance()
-                    # else:
-                    #     self.calc_trial_performance()
-
-                    self.save_predictions (self.current_exp, scaled=True)
-                    self.tg_back_scaled = self.tg
-                    self.tp1_back_scaled = self.tp1
-                    self.tp5_back_scaled = self.tp5
-                    self.tp10_back_scaled = self.tp10
-                    self.save_predictions (self.current_exp, scaled=False)
-
+                    print("currently testing trial number: ", str(self.current_exp))
+                    self.calc_trial_performance()
                     self.prediction_data = []
                     self.tg_back_scaled = []
                     self.tp1_back_scaled = []
                     self.tp5_back_scaled = []
                     self.tp10_back_scaled = []
-                    self.tg = []
-                    self.tp1 = []
-                    self.tp5 = []
-                    self.tp10 = []
-
                     self.current_exp += 1
-                if i == 0 and new_batch == 0:
+                if i== 0 and new_batch == 0:
                     break
 
-        print ("Hello :D ")
+        print("Hello :D ")
 
-        # if train:
-        #     self.calc_train_performance()
-        # else:
-        #     self.calc_test_performance()
-
-
-    def calc_train_trial_performance(self):
-        mae_loss, mae_loss_1, mae_loss_5, mae_loss_10, mae_loss_x, mae_loss_y, mae_loss_z = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-
-        meta_data_file_name = str(np.load(self.meta)[0]) + "/meta_data.csv"
-        meta_data = []
-        with open(meta_data_file_name, 'r') as f:  # rb
-            reader = csv.reader(f)
-            for row in reader:
-                meta_data.append(row)
-        seen = meta_data[1][2]
-        object = meta_data[1][0]
-
-        index = 0
-        with torch.no_grad():
-            for batch_set in self.prediction_data:
-                index += 1
-
-                mae_loss_check = self.criterion (batch_set[0], batch_set[1]).item ()
-                if math.isnan(mae_loss_check):
-                    index -= 1
-                else:
-                    ## MAE:
-                    mae_loss    += mae_loss_check
-                    mae_loss_1  += self.criterion(batch_set[0][0], batch_set[1][0]).item()
-                    mae_loss_5  += self.criterion(batch_set[0][4], batch_set[1][4]).item()
-                    mae_loss_10 += self.criterion(batch_set[0][9], batch_set[1][9]).item()
-                    mae_loss_x  += self.criterion(batch_set[0][:,:,0], batch_set[1][:,:,0]).item()
-                    mae_loss_y  += self.criterion(batch_set[0][:,:,1], batch_set[1][:,:,1]).item()
-                    mae_loss_z  += self.criterion(batch_set[0][:,:,2], batch_set[1][:,:,2]).item()
-
-        self.performance_data.append([mae_loss/index, mae_loss_1/index, mae_loss_5/index, mae_loss_10/index, mae_loss_x/index,
-                                mae_loss_y/index, mae_loss_z/index, seen, object])
-
-        print("object: ", object)
-        self.objects.append(object)
-
-    def calc_train_performance(self):
-        '''
-        - Calculates PSNR, SSIM, MAE for ts1, 5, 10 and x,y,z forces
-        - Save Plots for qualitative analysis
-        - Slip classification test
-        '''
-        performance_data_full = []
-        performance_data_full.append(["test loss MAE(L1): ", (sum([i[0] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss MAE(L1) pred ts 1: ", (sum([i[1] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss MAE(L1) pred ts 5: ", (sum([i[2] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss MAE(L1) pred ts 10: ", (sum([i[3] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss MAE(L1) pred force x: ", (sum([i[4] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss MAE(L1) pred force y: ", (sum([i[5] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss MAE(L1) pred force z: ", (sum([i[6] for i in self.performance_data]) / len(self.performance_data))])
-
-        self.objects = list(set(self.objects))
-        for object in self.objects:
-            performance_data_full.append(["test loss MAE(L1) Trained object " + str(object) + ": ", (sum([i[0] for i in self.performance_data if i[-1] == str(object)]) / len([i[0] for i in self.performance_data if i[-1] == str(object)]))])
-
-        [print (i) for i in performance_data_full]
-        # np.save(data_save_path + 'TRAIN_model_performance_loss_data', np.asarray(performance_data_full))
-
-    def save_predictions(self, experiment_to_test, scaled):
-        '''
-        - Plot the descaled 48 feature tactile vector for qualitative analysis
-        - Save plots in a folder with name being the trial number.
-        '''
-        trial_groundtruth_data = []
-        trial_predicted_data_t1 = []
-        trial_predicted_data_t5 = []
-        trial_predicted_data_t10 = []
-        for index in range (len(self.tg_back_scaled)):
-            for batch_number in range (len (self.tp10_back_scaled[index])):
-                if experiment_to_test == self.prediction_data[index][2].T[batch_number][0]:
-                    trial_predicted_data_t1.append (self.tp1_back_scaled[index][batch_number])
-                    trial_predicted_data_t5.append (self.tp5_back_scaled[index][batch_number])
-                    trial_predicted_data_t10.append (self.tp10_back_scaled[index][batch_number])
-                    trial_groundtruth_data.append (self.tg_back_scaled[index][batch_number])
-
-        if scaled:
-            add = "SCALED_"
-        else:
-            add = "DESCALED_"
-
-        if train:
-            tadd = "train_"
-        else:
-            tadd = "test_"
-
-        plot_save_dir = data_save_path + tadd + add + "test_plots_" + str(experiment_to_test)
-        try:
-            os.mkdir(plot_save_dir)
-        except:
-            "directory already exists"
-
-        np.save(plot_save_dir + '/trial_groundtruth_data', np.array(trial_groundtruth_data))
-        np.save(plot_save_dir + '/prediction_data_t1', np.array(trial_predicted_data_t1))
-        np.save(plot_save_dir + '/prediction_data_t5', np.array(trial_predicted_data_t5))
-        np.save(plot_save_dir + '/prediction_data_t10', np.array(trial_predicted_data_t10))
-
-        meta_data_file_name = str(np.load(self.meta)[0]) + "/meta_data.csv"
-        meta_data = []
-        with open(meta_data_file_name, 'r') as f:  # rb
-            reader = csv.reader(f)
-            for row in reader:
-                meta_data.append(row)
-        np.save(plot_save_dir + '/meta_data', np.array(meta_data))
-        np.save(plot_save_dir + '/meta_name', np.array(meta_data_file_name))
-
-    def create_difference_gifs(self, experiment_to_test):
-        '''
-        - Create gifs showing the predicted images for a trial, the groundtruth and the difference between the two.
-        - Only at t+10
-        '''
-        plot_save_dir = data_save_path + "test_plots_" + str(self.current_exp)
-        try:
-            os.mkdir(plot_save_dir)
-        except:
-            "directory already exists"
-
-        ts_to_test = -1
-        trial_groundtruth_data_t10 = []
-        trial_predicted_data_t10   = []
-        for index in range(len(self.prediction_data)):
-            for batch_number in range(self.prediction_data[index][0].shape[1]):
-                trial_predicted_data_t10.append(self.prediction_data[index][0][ts_to_test][batch_number].permute(1, 2, 0).numpy())
-                trial_groundtruth_data_t10.append(self.prediction_data[index][1][ts_to_test][batch_number].permute(1, 2, 0).numpy())
-
-        prediction_data_to_plot_images = np.array(trial_predicted_data_t10)[:]
-        gt_data_to_plot_images = np.array(trial_groundtruth_data_t10)[:]
-        images = [abs(prediction_data_to_plot_images[i] - gt_data_to_plot_images[i]) for i in range(len(gt_data_to_plot_images))]
-
-        for feature in range(3):
-            image_player(gt_data_to_plot_images, "groundtruth_t10", feature, self.current_exp)
-            image_player(prediction_data_to_plot_images, "predicted_t10", feature, self.current_exp)
-            image_player(images, "gt10_and_pt10_difference", feature, self.current_exp)
-
-    def create_test_plots(self, experiment_to_test):
-        '''
-        - Plot the descaled 48 feature tactile vector for qualitative analysis
-        - Save plots in a folder with name being the trial number.
-        '''
-        trial_groundtruth_data = []
-        trial_predicted_data_t10 = []
-        trial_predicted_data_t5 = []
-        for index in range(len(self.tg_back_scaled)):
-            for batch_number in range(len(self.tp10_back_scaled[index])):
-                if experiment_to_test == self.prediction_data[index][2].T[batch_number][0]:
-                    trial_predicted_data_t10.append(self.tp10_back_scaled[index][batch_number])
-                    trial_predicted_data_t5.append(self.tp5_back_scaled[index][batch_number])
-                    trial_groundtruth_data.append(self.tg_back_scaled[index][batch_number])
-
-        plot_save_dir = data_save_path + "test_plots_" + str(experiment_to_test)
-        try:
-            os.mkdir(plot_save_dir)
-        except:
-            "directory already exists"
-
-        np.save(plot_save_dir + '/prediction_data_gt', np.array(self.tg_back_scaled))
-        np.save(plot_save_dir + '/prediction_data_t5', np.array(self.tp5_back_scaled))
-        np.save(plot_save_dir + '/prediction_data_t10', np.array(self.tp10_back_scaled))
-
-        if len(trial_groundtruth_data) > 300 and len(trial_groundtruth_data) > 450:
-            trim_min = 100
-            trim_max = 250
-        elif len(trial_groundtruth_data) > 450:
-            trim_min = 200
-            trim_max = 450
-        else:
-            trim_min = 0
-            trim_max = -1
-
-        index = 0
-        titles = ["sheerx", "sheery", "normal"]
-        for j in range(3):
-            for i in range(16):
-                groundtruth_taxle = []
-                predicted_taxel_t10 = []
-                predicted_taxel_t5 = []
-                for k in range(len(trial_predicted_data_t10)):
-                    predicted_taxel_t10.append(trial_predicted_data_t10[k][index])
-                    predicted_taxel_t5.append(trial_predicted_data_t5[k][index])
-                    groundtruth_taxle.append(trial_groundtruth_data[k][index])
-
-                index += 1
-
-                fig, ax1 = plt.subplots()
-                ax1.set_xlabel('time step')
-                ax1.set_ylabel('tactile reading')
-                line_1 = ax1.plot([i for i in predicted_taxel_t10], alpha=1.0, c="b", label="Pred_t10")
-                line_2 = ax1.plot([i for i in predicted_taxel_t5], alpha=1.0, c="g", label="Pred_t5")
-                line_3 = ax1.plot(groundtruth_taxle, alpha=1.0, c="r", label="Gt")
-                ax1.tick_params(axis='y')
-
-                ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-                ax2.set_ylabel('MAE between gt+t10, pred_t10')  # we already handled the x-label with ax1
-                line_4 = ax2.plot([None for i in range(10)] + [abs(pred - gt) for (gt, pred) in zip(groundtruth_taxle[10:], predicted_taxel_t10[:-10])], alpha=1.0, c="k", label="MAE")
-
-                lines = line_1 + line_2 + line_3 + line_4
-                labs = [l.get_label () for l in lines]
-
-                fig.tight_layout()  # otherwise the right y-label is slightly clipped
-                fig.subplots_adjust(top=0.90)
-                ax1.legend(lines, labs, loc="upper right")
-                if len(predicted_taxel_t5) < 150:
-                    ax1.xaxis.set_major_locator(MultipleLocator(10))
-                    ax1.xaxis.set_minor_locator(AutoMinorLocator(10))
-                elif len(predicted_taxel_t5) > 150 and len(predicted_taxel_t5) < 1000:
-                    ax1.xaxis.set_major_locator(MultipleLocator(25))
-                    ax1.xaxis.set_minor_locator(AutoMinorLocator(25))
-                elif len(predicted_taxel_t5) > 1000:
-                    ax1.xaxis.set_major_locator(MultipleLocator(100))
-                    ax1.xaxis.set_minor_locator(AutoMinorLocator(100))
-
-                ax1.grid(which='minor')
-                ax1.grid(which='major')
-                plt.title("AV-PMN model taxel " + str(index))
-                plt.savefig(plot_save_dir + '/test_plot_taxel_' + str(index) + '.png', dpi=300)
-                plt.clf()
-
+        self.calc_test_performance()
 
     def calc_trial_performance(self):
         mae_loss, mae_loss_1, mae_loss_5, mae_loss_10, mae_loss_x, mae_loss_y, mae_loss_z = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -622,32 +367,35 @@ class ModelTester:
                     mae_loss_y  += self.criterion(batch_set[0][:,:,1], batch_set[1][:,:,1]).item()
                     mae_loss_z  += self.criterion(batch_set[0][:,:,2], batch_set[1][:,:,2]).item()
                     ## SSIM:
-                    for i in range(len(batch_set)):
-                        index_ssim += 1
-                        ssim_loss += ssim_calc(batch_set[0][i], batch_set[1][i])
-                    ssim_loss_1  += ssim_calc(batch_set[0][0], batch_set[1][0])
-                    ssim_loss_5  += ssim_calc(batch_set[0][4], batch_set[1][4])
-                    ssim_loss_10 += ssim_calc(batch_set[0][9], batch_set[1][9])
-                    ssim_loss_x  += ssim_calc(batch_set[0][:,:,0], batch_set[1][:,:,0])
-                    ssim_loss_y  += ssim_calc(batch_set[0][:,:,1], batch_set[1][:,:,1])
-                    ssim_loss_z  += ssim_calc(batch_set[0][:,:,2], batch_set[1][:,:,2])
-                    ## PSNR:
-                    psnr_loss    += psnr_calc(batch_set[0], batch_set[1])
-                    psnr_loss_1  += psnr_calc(batch_set[0][0], batch_set[1][0])
-                    psnr_loss_5  += psnr_calc(batch_set[0][4], batch_set[1][4])
-                    psnr_loss_10 += psnr_calc(batch_set[0][9], batch_set[1][9])
-                    psnr_loss_x  += psnr_calc(batch_set[0][:,:,0], batch_set[1][:,:,0])
-                    psnr_loss_y  += psnr_calc(batch_set[0][:,:,1], batch_set[1][:,:,1])
-                    psnr_loss_z  += psnr_calc(batch_set[0][:,:,2], batch_set[1][:,:,2])
+                    # for i in range(len(batch_set)):
+                    #     index_ssim += 1
+                    #     ssim_loss += ssim_calc(batch_set[0][i], batch_set[1][i])
+                    # ssim_loss_1  += ssim_calc(batch_set[0][0], batch_set[1][0])
+                    # ssim_loss_5  += ssim_calc(batch_set[0][4], batch_set[1][4])
+                    # ssim_loss_10 += ssim_calc(batch_set[0][9], batch_set[1][9])
+                    # ssim_loss_x  += ssim_calc(batch_set[0][:,:,0], batch_set[1][:,:,0])
+                    # ssim_loss_y  += ssim_calc(batch_set[0][:,:,1], batch_set[1][:,:,1])
+                    # ssim_loss_z  += ssim_calc(batch_set[0][:,:,2], batch_set[1][:,:,2])
+                    # ## PSNR:
+                    # psnr_loss    += psnr_calc(batch_set[0], batch_set[1])
+                    # psnr_loss_1  += psnr_calc(batch_set[0][0], batch_set[1][0])
+                    # psnr_loss_5  += psnr_calc(batch_set[0][4], batch_set[1][4])
+                    # psnr_loss_10 += psnr_calc(batch_set[0][9], batch_set[1][9])
+                    # psnr_loss_x  += psnr_calc(batch_set[0][:,:,0], batch_set[1][:,:,0])
+                    # psnr_loss_y  += psnr_calc(batch_set[0][:,:,1], batch_set[1][:,:,1])
+                    # psnr_loss_z  += psnr_calc(batch_set[0][:,:,2], batch_set[1][:,:,2])
 
         self.performance_data.append([mae_loss/index, mae_loss_1/index, mae_loss_5/index, mae_loss_10/index, mae_loss_x/index,
-                                mae_loss_y/index, mae_loss_z/index, ssim_loss/index_ssim, ssim_loss_1/index,
-                                ssim_loss_5/index, ssim_loss_10/index, ssim_loss_x/index, ssim_loss_y/index,
-                                ssim_loss_z/index, psnr_loss/index, psnr_loss_1/index, psnr_loss_5/index,
-                                psnr_loss_10/index, psnr_loss_x/index, psnr_loss_y/index, psnr_loss_z/index, seen, object])
+                                mae_loss_y/index, mae_loss_z/index, seen, object])
+
+        print("object: ", object)
         self.objects.append(object)
 
-        print(mae_loss/index, object, meta_data_file_name)
+        # self.performance_data.append([mae_loss/index, mae_loss_1/index, mae_loss_5/index, mae_loss_10/index, mae_loss_x/index,
+        #                         mae_loss_y/index, mae_loss_z/index, ssim_loss/index_ssim, ssim_loss_1/index,
+        #                         ssim_loss_5/index, ssim_loss_10/index, ssim_loss_x/index, ssim_loss_y/index,
+        #                         ssim_loss_z/index, psnr_loss/index, psnr_loss_1/index, psnr_loss_5/index,
+        #                         psnr_loss_10/index, psnr_loss_x/index, psnr_loss_y/index, psnr_loss_z/index, seen, object])
 
     def calc_test_performance(self):
         '''
@@ -664,41 +412,131 @@ class ModelTester:
         performance_data_full.append(["test loss MAE(L1) pred force y: ", (sum([i[5] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss MAE(L1) pred force z: ", (sum([i[6] for i in self.performance_data]) / len(self.performance_data))])
 
-        for trial, values in enumerate(self.performance_data):
-            performance_data_full.append(["test loss MAE(L1) Trial " + str(trial) + "; object: " + str(self.performance_data[trial][-1]) + ": ", self.performance_data[trial][0]])
+        # performance_data_full.append(["test loss MAE(L1) Seen objects: ", (sum([i[0] for i in self.performance_data if i[-2] == '1']) / len([i[0] for i in self.performance_data if i[-2] == '1']))])
+        # performance_data_full.append(["test loss MAE(L1) Novel objects: ", (sum([i[0] for i in self.performance_data if i[-2] == '0']) / len([i[0] for i in self.performance_data if i[-2] == '0']))])
 
         self.objects = list(set(self.objects))
         for object in self.objects:
             performance_data_full.append(["test loss MAE(L1) Trained object " + str(object) + ": ", (sum([i[0] for i in self.performance_data if i[-1] == str(object)]) / len([i[0] for i in self.performance_data if i[-1] == str(object)]))])
 
-        performance_data_full.append (["test loss MAE(L1) Seen objects: ", (sum([i[0] for i in self.performance_data if i[-2] == '1']) / len([i[0] for i in self.performance_data if i[-2] == '1']))])
-        performance_data_full.append (["test loss MAE(L1) Novel objects: ", (sum([i[0] for i in self.performance_data if i[-2] == '0']) / len([i[0] for i in self.performance_data if i[-2] == '0']))])
-
-        performance_data_full.append(["test loss SSIM: ", (sum([i[7] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss SSIM pred ts 1: ", (sum([i[8] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss SSIM pred ts 5: ", (sum([i[9] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss SSIM pred ts 10: ", (sum([i[10] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss SSIM pred force x: ", (sum([i[11] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss SSIM pred force y: ", (sum([i[12] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss SSIM pred force z: ", (sum([i[13] for i in self.performance_data]) / len(self.performance_data))])
-
-        performance_data_full.append (["test loss SSIM Seen objects: ", (sum([i[7] for i in self.performance_data if i[-2] == '1']) / len([i[7] for i in self.performance_data if i[-2] == '1']))])
-        performance_data_full.append (["test loss SSIM Novel objects: ", (sum([i[7] for i in self.performance_data if i[-2] == '0']) / len([i[7] for i in self.performance_data if i[-2] == '0']))])
-
-        performance_data_full.append(["test loss PSNR: ", (sum([i[14] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss PSNR pred ts 1: ", (sum([i[15] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss PSNR pred ts 5: ", (sum([i[16] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss PSNR pred ts 10: ", (sum([i[17] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss PSNR pred force x: ", (sum([i[18] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss PSNR pred force y: ", (sum([i[19] for i in self.performance_data]) / len(self.performance_data))])
-        performance_data_full.append(["test loss PSNR pred force z: ", (sum([i[20] for i in self.performance_data]) / len(self.performance_data))])
-
-        performance_data_full.append (["test loss PSNR Seen objects: ", (sum([i[14] for i in self.performance_data if i[-2] == '1']) / len([i[14] for i in self.performance_data if i[-2] == '1']))])
-        performance_data_full.append (["test loss PSNR Novel objects: ", (sum([i[14] for i in self.performance_data if i[-2] == '0']) / len([i[14] for i in self.performance_data if i[-2] == '0']))])
-
+        # performance_data_full.append(["test loss SSIM: ", (sum([i[7] for i in self.performance_data]) / len(self.performance_data))])
+        # performance_data_full.append(["test loss SSIM pred ts 1: ", (sum([i[8] for i in self.performance_data]) / len(self.performance_data))])
+        # performance_data_full.append(["test loss SSIM pred ts 5: ", (sum([i[9] for i in self.performance_data]) / len(self.performance_data))])
+        # performance_data_full.append(["test loss SSIM pred ts 10: ", (sum([i[10] for i in self.performance_data]) / len(self.performance_data))])
+        # performance_data_full.append(["test loss SSIM pred force x: ", (sum([i[11] for i in self.performance_data]) / len(self.performance_data))])
+        # performance_data_full.append(["test loss SSIM pred force y: ", (sum([i[12] for i in self.performance_data]) / len(self.performance_data))])
+        # performance_data_full.append(["test loss SSIM pred force z: ", (sum([i[13] for i in self.performance_data]) / len(self.performance_data))])
+        #
+        # try:
+        #     performance_data_full.append (["test loss SSIM Seen objects: ", (sum([i[7] for i in self.performance_data if i[-2] == '1']) / len([i[7] for i in self.performance_data if i[-2] == '1']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append (["test loss SSIM Novel objects: ", (sum([i[7] for i in self.performance_data if i[-2] == '0']) / len([i[7] for i in self.performance_data if i[-2] == '0']))])
+        # except:
+        #     pass
+        #
+        # try:
+        #     performance_data_full.append(["test loss SSIM Trained object 1: ", (sum([i[7] for i in self.performance_data if i[-1] == '9']) / len([i[7] for i in self.performance_data if i[-1] == '9']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss SSIM Trained object 2: ", (sum([i[7] for i in self.performance_data if i[-1] == '12']) / len([i[7] for i in self.performance_data if i[-1] == '12']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss SSIM Trained object 3: ", (sum([i[7] for i in self.performance_data if i[-1] == '6']) / len([i[7] for i in self.performance_data if i[-1] == '6']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss SSIM Trained object 4: ", (sum([i[7] for i in self.performance_data if i[-1] == '0']) / len([i[7] for i in self.performance_data if i[-1] == '0']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss SSIM Trained object 5: ", (sum([i[7] for i in self.performance_data if i[-1] == '2']) / len([i[7] for i in self.performance_data if i[-1] == '2']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss SSIM Trained object 6: ", (sum([i[7] for i in self.performance_data if i[-1] == '5']) / len([i[7] for i in self.performance_data if i[-1] == '5']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss SSIM Trained object 7: ", (sum([i[7] for i in self.performance_data if i[-1] == '3']) / len([i[7] for i in self.performance_data if i[-1] == '3']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss SSIM Trained object 8: ", (sum([i[7] for i in self.performance_data if i[-1] == '8']) / len([i[7] for i in self.performance_data if i[-1] == '8']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss SSIM Trained object 9: ", (sum([i[7] for i in self.performance_data if i[-1] == '1']) / len([i[7] for i in self.performance_data if i[-1] == '1']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss SSIM Trained object 10: ", (sum([i[7] for i in self.performance_data if i[-1] == '10']) / len([i[7] for i in self.performance_data if i[-1] == '10']))])
+        # except:
+        #     pass
+        #
+        # performance_data_full.append(["test loss PSNR: ", (sum([i[14] for i in self.performance_data]) / len(self.performance_data))])
+        # performance_data_full.append(["test loss PSNR pred ts 1: ", (sum([i[15] for i in self.performance_data]) / len(self.performance_data))])
+        # performance_data_full.append(["test loss PSNR pred ts 5: ", (sum([i[16] for i in self.performance_data]) / len(self.performance_data))])
+        # performance_data_full.append(["test loss PSNR pred ts 10: ", (sum([i[17] for i in self.performance_data]) / len(self.performance_data))])
+        # performance_data_full.append(["test loss PSNR pred force x: ", (sum([i[18] for i in self.performance_data]) / len(self.performance_data))])
+        # performance_data_full.append(["test loss PSNR pred force y: ", (sum([i[19] for i in self.performance_data]) / len(self.performance_data))])
+        # performance_data_full.append(["test loss PSNR pred force z: ", (sum([i[20] for i in self.performance_data]) / len(self.performance_data))])
+        #
+        # try:
+        #     performance_data_full.append (["test loss PSNR Seen objects: ", (sum([i[14] for i in self.performance_data if i[-2] == '1']) / len([i[14] for i in self.performance_data if i[-2] == '1']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append (["test loss PSNR Novel objects: ", (sum([i[14] for i in self.performance_data if i[-2] == '0']) / len([i[14] for i in self.performance_data if i[-2] == '0']))])
+        # except:
+        #     pass
+        #
+        # try:
+        #     performance_data_full.append(["test loss PSNR Trained object 1: ", (sum([i[14] for i in self.performance_data if i[-1] == '9']) / len([i[14] for i in self.performance_data if i[-1] == '9']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss PSNR Trained object 2: ", (sum([i[14] for i in self.performance_data if i[-1] == '12']) / len([i[14] for i in self.performance_data if i[-1] == '12']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss PSNR Trained object 3: ", (sum([i[14] for i in self.performance_data if i[-1] == '6']) / len([i[14] for i in self.performance_data if i[-1] == '6']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss PSNR Trained object 4: ", (sum([i[14] for i in self.performance_data if i[-1] == '0']) / len([i[14] for i in self.performance_data if i[-1] == '0']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss PSNR Trained object 5: ", (sum([i[14] for i in self.performance_data if i[-1] == '2']) / len([i[14] for i in self.performance_data if i[-1] == '2']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss PSNR Trained object 6: ", (sum([i[14] for i in self.performance_data if i[-1] == '5']) / len([i[14] for i in self.performance_data if i[-1] == '5']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss PSNR Trained object 7: ", (sum([i[14] for i in self.performance_data if i[-1] == '3']) / len([i[14] for i in self.performance_data if i[-1] == '3']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss PSNR Trained object 8: ", (sum([i[14] for i in self.performance_data if i[-1] == '8']) / len([i[14] for i in self.performance_data if i[-1] == '8']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss PSNR Trained object 9: ", (sum([i[14] for i in self.performance_data if i[-1] == '1']) / len([i[14] for i in self.performance_data if i[-1] == '1']))])
+        # except:
+        #     pass
+        # try:
+        #     performance_data_full.append(["test loss PSNR Trained object 10: ", (sum([i[14] for i in self.performance_data if i[-1] == '10']) / len([i[14] for i in self.performance_data if i[-1] == '10']))])
+        # except:
+        #     pass
 
         [print (i) for i in performance_data_full]
-        np.save(data_save_path + 'model_performance_loss_data', np.asarray(performance_data_full))
+        np.save(data_save_path + 'TRAIN_model_performance_loss_data', np.asarray(performance_data_full))
 
     def load_scalars(self):
         self.scaler_tx = load(open(scaler_dir + "tactile_standard_scaler_x.pkl", 'rb'))
@@ -803,4 +641,5 @@ if __name__ == "__main__":
     BG = BatchGenerator()
     MT = ModelTester()
     MT.test_full_model()
+    MT.calc_test_performance()
 

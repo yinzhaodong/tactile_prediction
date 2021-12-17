@@ -14,16 +14,16 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/simple_baseline_ACMLP/saved_models/"
-train_data_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/train_image_dataset_10c_10h/"
-scaler_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/"
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/simple_baseline_ACMLP/saved_models/box_only_"
+train_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/train_linear_dataset_10c_10h/"
+scaler_dir = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
 # unique save title:
 model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
 os.mkdir(model_save_path)
 
 seed = 42
-epochs = 100
+epochs = 50
 batch_size = 32
 learning_rate = 1e-3
 context_frames = 10
@@ -50,8 +50,8 @@ class BatchGenerator:
         dataset_train = FullDataSet(self.data_map, train=True)
         dataset_validate = FullDataSet(self.data_map, validation=True)
         transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=6)
+        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True, num_workers=6)
         self.data_map = []
         return train_loader, validation_loader
 
@@ -79,15 +79,14 @@ class FullDataSet:
 class simple_ACMLP(nn.Module):
     def __init__(self):
         super(simple_ACMLP, self).__init__()
-        self.fc1 = nn.Linear(48+6+6, 48).to(device)
+        self.fc1 = nn.Linear((48*10)+(6*20), (48*10)).to(device)
         self.tan_activation = nn.Tanh().to(device)
 
     def forward(self, tactiles, actions):
-        tactile = tactiles.squeeze()[:-1][context_frames - 1]
-        state = actions.squeeze()[:-1][context_frames - 1]
-        action = actions.squeeze()[:-1][context_frames]
-        tactile_action_and_state = torch.cat((torch.cat((action, state), 1), tactile), 1)
-
+        tactile = tactiles[:context_frames].permute(1, 0, 2)
+        tactile = tactile.flatten(start_dim=1)
+        actions = actions.permute(1, 0, 2).flatten(start_dim=1)
+        tactile_action_and_state = torch.cat((actions, tactile), 1)
         output = self.tan_activation(self.fc1(tactile_action_and_state))
         return output
 
@@ -115,7 +114,7 @@ class ModelTrainer:
 
                 tactile_predictions = self.simple_ACMLP.forward(tactiles=tactile, actions=action)  # Step 3. Run our forward pass.
                 self.optimizer.zero_grad()
-                loss = self.criterion(tactile_predictions, tactile[context_frames])
+                loss = self.criterion(tactile_predictions, tactile[context_frames:].permute(1, 0, 2).flatten(start_dim=1))
                 loss.backward()
                 self.optimizer.step()
 
@@ -139,7 +138,7 @@ class ModelTrainer:
 
                     tactile_predictions = self.simple_ACMLP.forward(tactiles=tactile, actions=action)
                     self.optimizer.zero_grad()
-                    val_loss = self.criterion1(tactile_predictions.to(device), tactile[context_frames])
+                    val_loss = self.criterion1(tactile_predictions, tactile[context_frames:].permute(1, 0, 2).flatten(start_dim=1))
                     val_losses += val_loss.item()
 
             plot_validation_loss.append(val_losses / index__)

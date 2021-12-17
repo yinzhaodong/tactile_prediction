@@ -27,13 +27,15 @@ from scipy.ndimage.interpolation import map_coordinates
 # Hyperparameters:
 train_data_dir = '/home/user/Robotics/Data_sets/box_only_dataset/train/'
 test_data_dir  = '/home/user/Robotics/Data_sets/box_only_dataset/test/'
-train_out_dir  = '/home/user/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h/'
-test_out_dir   = '/home/user/Robotics/Data_sets/box_only_dataset/test_image_dataset_10c_10h/'
+train_out_dir  = '/home/user/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h_64/'
+test_out_dir   = '/home/user/Robotics/Data_sets/box_only_dataset/test_image_dataset_10c_10h_64/'
 scaler_out_dir = '/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/'
 
 context_length = 10
 horrizon_length = 10
-image_height, image_width = 32, 32
+image_height, image_width = 64, 64
+IMAGE = True
+
 
 def create_image(tactile_x, tactile_y, tactile_z):
 	# convert tactile data into an image:
@@ -233,13 +235,15 @@ if __name__  == "__main__":
 			tactile_images, tactile_image_names = [], []
 			for time_step in range(tactile_data.shape[0]):
 				# create the image:
-				current_image = create_image(tactile_data[time_step][0], tactile_data[time_step][1], tactile_data[time_step][2])
+				if IMAGE:
+					current_image = create_image(tactile_data[time_step][0], tactile_data[time_step][1], tactile_data[time_step][2])
+				else:
+					current_image = np.array(tactile_data[time_step])
 				tactile_images.append(current_image)
 				# save the image:
 				image_name = "tactile_image_" + str(experiment_number) + "_time_step_" + str(time_step) + ".npy"
 				tactile_image_names.append(image_name)
 				np.save(path + image_name, current_image)
-
 
 			####################################### Format data into time series ###########################################
 			sequence_length = context_length + horrizon_length

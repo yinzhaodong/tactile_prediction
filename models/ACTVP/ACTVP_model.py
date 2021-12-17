@@ -14,9 +14,9 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTVP/box_only_"
-train_data_dir = "/home/user/Robotics/Data_sets/TP_single_object/train_image_dataset_10c_10h/"
-scaler_dir = "/home/user/Robotics/Data_sets/TP_single_object/scalar_info/"
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTVP/saved_models/box_only_THDloss_"
+train_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h/"
+scaler_dir = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
 # unique save title:
 model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
@@ -50,8 +50,8 @@ class BatchGenerator:
         dataset_train = FullDataSet(self.data_map, train=True)
         dataset_validate = FullDataSet(self.data_map, validation=True)
         transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=4)
-        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True, num_workers=4)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=6)
+        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True, num_workers=6)
         self.data_map = []
         return train_loader, validation_loader
 
@@ -149,12 +149,30 @@ class ACTVP(nn.Module):
         return torch.stack(outputs)
 
 
+class THDloss(nn.Module):
+    def __init__(self):
+        super ().__init__ ()
+        self.TH = sequence_length - context_frames
+        self.gamma = [t for t in np.linspace (0.0, 1.0, self.TH)]
+        self.mae = nn.L1Loss()
+
+    def forward(self, yhat, y):
+        loss = 0.000
+        for t in range(self.TH):
+            loss += self.gamma[t] * self.mae(yhat[t], y[t])
+        return loss / self.TH
+
+
 class ModelTrainer:
     def __init__(self):
         self.train_full_loader, self.valid_full_loader = BG.load_full_data()
         self.full_model = ACTVP()
-        self.criterion = nn.L1Loss()
-        self.criterion1 = nn.L1Loss()
+
+        self.criterion = THDloss()
+        self.print_criterion = nn.L1Loss()
+        # self.criterion = nn.MSELoss()
+        # self.criterion = nn.L1Loss()
+        # self.criterion1 = nn.L1Loss()
         self.optimizer = optim.Adam(self.full_model.parameters(), lr=learning_rate)
 
     def train_full_model(self):
@@ -166,12 +184,13 @@ class ModelTrainer:
         progress_bar = tqdm(range(0, epochs), total=(epochs*len(self.train_full_loader)))
         for epoch in progress_bar:
             losses = 0.0
+            print_losses = 0.0
             for index, batch_features in enumerate(self.train_full_loader):
+                self.optimizer.zero_grad()
                 tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
                 action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
 
                 tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)  # Step 3. Run our forward pass.
-                self.optimizer.zero_grad()
                 loss = self.criterion(tactile_predictions, tactile[context_frames:])
                 loss.backward()
                 self.optimizer.step()
@@ -182,25 +201,36 @@ class ModelTrainer:
                 else:
                     mean = 0
 
-                progress_bar.set_description("epoch: {}, ".format(epoch) + "loss: {:.4f}, ".format(float(loss.item())) + "mean loss: {:.4f}, ".format(mean))
+                print_loss = self.print_criterion(tactile_predictions, tactile[context_frames:])
+                print_losses += print_loss.item()
+                if index:
+                    print_mean = print_losses / index
+                else:
+                    print_mean = 0
+
+                progress_bar.set_description("epoch: {}, ".format(epoch) + "loss: {:.4f}, ".format(float(loss.item())) + "mean loss: {:.4f}, ".format(mean) + "MAE mean loss: {:.4f}, ".format(print_mean))
                 progress_bar.update()
 
             plot_training_loss.append(mean)
 
             # Validation checking:
             val_losses = 0.0
+            print_val_losses = 0.0
             with torch.no_grad():
                 for index__, batch_features in enumerate(self.valid_full_loader):
+                    self.optimizer.zero_grad()
                     tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
                     action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
 
                     tactile_predictions = self.full_model.forward(tactiles=tactile, actions=action)
-                    self.optimizer.zero_grad()
-                    val_loss = self.criterion1(tactile_predictions.to(device), tactile[context_frames:])
+                    val_loss = self.criterion(tactile_predictions.to(device), tactile[context_frames:])
                     val_losses += val_loss.item()
 
+                    print_loss = self.print_criterion(tactile_predictions.to(device), tactile[context_frames:])
+                    print_val_losses += print_loss.item()
+
             plot_validation_loss.append(val_losses / index__)
-            print("Validation mean loss: {:.4f}, ".format(val_losses / index__))
+            print("Validation mean loss: {:.4f}, ".format(val_losses / index__) + " Validation MAE mean loss: {:.4f}, ".format(print_val_losses / index__))
 
             # save the train/validation performance data
             np.save(model_save_path + "plot_validation_loss", np.array(plot_validation_loss))
@@ -216,7 +246,7 @@ class ModelTrainer:
             else:
                 if best_val_loss > val_losses / index__:
                     print("saving model")
-                    torch.save(self.full_model, model_save_path + "ACPixelMotionNet_model")
+                    torch.save(self.full_model, model_save_path + "ACTVP_THD")
                     best_val_loss = val_losses / index__
                 early_stop_clock = 0
                 previous_val_mean_loss = val_losses / index__

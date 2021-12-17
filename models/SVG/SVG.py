@@ -16,17 +16,17 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/SVG/saved_models/"
-train_data_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/train_image_dataset_10c_10h/"
-scaler_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/"
+model_save_path = "/home/willmandil/Robotics/tactile_prediction/tactile_prediction/models/SVG/saved_models/box_only_3layers_"
+train_data_dir  = "/home/willmandil/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h/"
+scaler_dir      = "/home/willmandil/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
 # unique save title:
 model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
 os.mkdir(model_save_path)
 
-lr=0.002
+lr=0.0001
 beta1=0.9
-batch_size=32
+batch_size=128
 log_dir='logs/lp'
 model_dir=''
 name=''
@@ -41,14 +41,14 @@ out_channels = 3
 dataset='smmnist'
 n_past=10
 n_future=10
-n_eval=30
+n_eval=20
 rnn_size=256
-prior_rnn_layers=1
-posterior_rnn_layers=1
-predictor_rnn_layers=2
+prior_rnn_layers=2
+posterior_rnn_layers=2
+predictor_rnn_layers=3
 z_dim=10  # number of latent variables
-g_dim=32
-beta=0.0001
+g_dim=128
+beta=0.1  # was 0.0001
 data_threads=5
 num_digits=2
 last_frame_skip='store_true'
@@ -80,8 +80,8 @@ class BatchGenerator:
         dataset_train = FullDataSet(self.data_map, train=True)
         dataset_validate = FullDataSet(self.data_map, validation=True)
         transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=8)
+        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True, num_workers=8)
         self.data_map = []
         return train_loader, validation_loader
 
@@ -157,28 +157,36 @@ class ModelTrainer:
         self.encoder.zero_grad()
         self.decoder.zero_grad()
 
-        # initialize the hidden state.
         self.frame_predictor.hidden = self.frame_predictor.init_hidden()
         self.posterior.hidden = self.posterior.init_hidden()
         self.prior.hidden = self.prior.init_hidden()
 
-        mae = 0
-        kld = 0
-        for i in range(1, n_past + n_future):
-            h = self.encoder(x[i - 1])
-            h_target = self.encoder(x[i])[0]
+        gen_seq = []
+        gt_seq = []
+        x_in = x[0]
+        for i in range(1, n_eval):
+            h = self.encoder(x_in)
             if last_frame_skip or i < n_past:
                 h, skip = h
             else:
-                h = h[0]
-            z_t, mu, logvar = self.posterior(h_target)
-            _, mu_p, logvar_p = self.prior(h)
-            h_pred = self.frame_predictor(torch.cat([h, z_t], 1))
-            x_pred = self.decoder([h_pred, skip])
-            mae += self.mae_criterion(x_pred, x[i][:,12:, :,:])
-            kld += self.kl_criterion(mu, logvar, mu_p, logvar_p)
+                h, _ = h
+            h = h.detach()
+            if i < n_past:
+                h_target = self.encoder(x[i])[0].detach()
+                z_t, _, _ = self.posterior(h_target)
+                self.prior(h)
+                self.frame_predictor(torch.cat([h, z_t], 1))
+                x_in = x[i]
+            else:
+                z_t, _, _ = self.prior(h)
+                h = self.frame_predictor(torch.cat([h, z_t], 1)).detach()
+                x_in = self.decoder([h, skip]).detach()
+                x_in = torch.cat((state_action_image[i], x_in), 1)  # add the next actions back into the set
+                gen_seq.append(x_in[:, 12:, :, :].data.cpu().numpy())
+                gt_seq.append(x[i][:, 12:, :, :].data.cpu().numpy())
 
-        return mae.data.cpu().numpy() /(n_past + n_future), kld.data.cpu().numpy() /(n_future + n_past)
+        mae = self.mae_criterion(torch.from_numpy(np.array(gen_seq)), torch.from_numpy(np.array(gt_seq)))
+        return mae.data.cpu().numpy()
 
     def train(self, tactiles, actions):
         states = actions[0, :, :]
@@ -210,7 +218,7 @@ class ModelTrainer:
             _, mu_p, logvar_p = self.prior(h)
             h_pred = self.frame_predictor(torch.cat([h, z_t], 1))
             x_pred = self.decoder([h_pred, skip])
-            mae += self.mae_criterion(x_pred, x[i][:,12:, :,:])
+            mae += self.mae_criterion(x_pred, x[i][:, 12:, :, :])
             kld += self.kl_criterion(mu, logvar, mu_p, logvar_p)
 
         loss = mae + kld * beta
@@ -222,7 +230,7 @@ class ModelTrainer:
         self.encoder_optimizer.step()
         self.decoder_optimizer.step()
 
-        return mae.data.cpu().numpy() /(n_past + n_future), kld.data.cpu().numpy() /(n_future + n_past)
+        return mae.data.cpu().numpy() / (n_past + n_future), kld.data.cpu().numpy() / (n_future + n_past)
 
     def kl_criterion(self, mu1, logvar1, mu2, logvar2):
         sigma1 = logvar1.mul(0.5).exp()
@@ -231,11 +239,11 @@ class ModelTrainer:
         return kld.sum() / batch_size
 
     def train_full_model(self):
-        self.frame_predictor.train ()
-        self.posterior.train ()
-        self.prior.train ()
-        self.encoder.train ()
-        self.decoder.train ()
+        self.frame_predictor.train()
+        self.posterior.train()
+        self.prior.train()
+        self.encoder.train()
+        self.decoder.train()
 
         plot_training_loss = []
         plot_validation_loss = []
@@ -247,7 +255,7 @@ class ModelTrainer:
             epoch_mae_losses = 0.0
             epoch_kld_losses = 0.0
             for index, batch_features in enumerate(self.train_full_loader):
-                if batch_features[1].shape[0] == 32:
+                if batch_features[1].shape[0] == batch_size:
                     tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
                     action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
                     mae, kld = self.train(tactiles=tactile, actions=action)
@@ -270,15 +278,14 @@ class ModelTrainer:
             val_kld_losses = 0.0
             with torch.no_grad():
                 for index__, batch_features in enumerate(self.valid_full_loader):
-                    if batch_features[1].shape[0] == 32:
+                    if batch_features[1].shape[0] == batch_size:
                         tactile = batch_features[1].permute (1, 0, 4, 3, 2).to (device)
                         action = batch_features[0].squeeze (-1).permute (1, 0, 2).to (device)
-                        val_mae, val_kld = self.test(tactiles=tactile, actions=action)
+                        val_mae = self.test(tactiles=tactile, actions=action)
                         val_mae_losses += val_mae.item()
-                        val_kld_losses += val_kld.item()
 
-            plot_validation_loss.append([val_mae_losses / index__, val_kld_losses / index__])
-            print("Validation mae: {:.4f}, ".format(val_mae_losses / index__) +  " || Validation kld: {:.4f}, ".format(val_kld_losses / index__))
+            plot_validation_loss.append(val_mae_losses / index__)
+            print("Validation mae: {:.4f}, ".format(val_mae_losses / index__))
 
             # save the train/validation performance data
             np.save(model_save_path + "plot_validation_loss", np.array(plot_validation_loss))

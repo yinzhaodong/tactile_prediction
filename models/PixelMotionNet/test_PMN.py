@@ -22,12 +22,12 @@ from pickle import load
 from datetime import datetime
 from torch.utils.data import Dataset
 
-model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/box_only_dataset_model_25_11_2021_14_10/ACPixelMotionNet_model"
-data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/box_only_dataset_model_25_11_2021_14_10/"
-test_data_dir   = "/home/user/Robotics/Data_sets/box_only_dataset/test_image_dataset_10c_10h/"
+model_path      = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet/saved_models/box_only_WITHADD_model_17_12_2021_12_53/PixelMotionNet_withADD_model"
+data_save_path  = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet/saved_models/box_only_WITHADD_model_17_12_2021_12_53/"
+test_data_dir   = "/home/user/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h/"
 scaler_dir      = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
-train = False
+train = True
 
 seed = 42
 epochs = 100
@@ -109,17 +109,17 @@ class ConvLSTMCell(nn.Module):
 
     def init_hidden(self, batch_size, image_size):
         height, width = image_size
-        return(torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device).to(device),
+        return (torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device).to(device),
                 torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device).to(device))
 
 
-class ACPixelMotionNet(nn.Module):
+class PixelMotionNet(nn.Module):
     def __init__(self):
-        super(ACPixelMotionNet, self).__init__()
+        super(PixelMotionNet, self).__init__()
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1).cuda()
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1).cuda()
         self.convlstm1 = ConvLSTMCell(input_dim=64, hidden_dim=32, kernel_size=(3, 3), bias=True).cuda()
-        self.convlstm2 = ConvLSTMCell(input_dim=44, hidden_dim=32, kernel_size=(3, 3), bias=True).cuda()
+        self.convlstm2 = ConvLSTMCell(input_dim=32, hidden_dim=32, kernel_size=(3, 3), bias=True).cuda()
         self.upconv1 = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, stride=1, padding=1).cuda()
         self.upconv2 = nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1).cuda()
         self.outconv = nn.Conv2d(in_channels=32, out_channels=3, kernel_size=3, stride=1, padding=1).cuda()
@@ -136,7 +136,7 @@ class ACPixelMotionNet(nn.Module):
         self.upsample2 = nn.Upsample(scale_factor=2)
 
         self.encoder = nn.Sequential(
-            nn.Conv2d(1, 16, 3, stride=3, padding=1),  # b, 16 , 10, 10
+            nn.Conv2d(1, 16, 3, stride=3, padding=1),  # b, 16, 10, 10
             nn.ReLU(True),
             nn.MaxPool2d(2, stride=2),  # b, 16, 5, 5
             nn.Conv2d(16, 8, 3, stride=2, padding=1),  # b, 8, 3, 3
@@ -158,24 +158,19 @@ class ACPixelMotionNet(nn.Module):
             # sample_action.to(device)
 
             if index > context_frames-1:
-                out1 = self.maxpool1(self.relu1(self.conv1(output)))
-                out2 = self.maxpool2(self.relu2(self.conv2(out1)))
+                out1 = self.maxpool1 (self.relu1 (self.conv1 (output)))
+                out2 = self.maxpool2 (self.relu2 (self.conv2 (out1)))
 
-                hidden_1, cell_1 = self.convlstm1(input_tensor=out2, cur_state=[hidden_1, cell_1])
+                hidden_1, cell_1 = self.convlstm1 (input_tensor=out2, cur_state=[hidden_1, cell_1])
+                hidden_2, cell_2 = self.convlstm2 (input_tensor=hidden_1, cur_state=[hidden_2, cell_2])
 
-                # Add in tiled action and state:
-                state_action = torch.cat((state, sample_action), 1)
-                robot_and_tactile = torch.cat((torch.cat(8*[torch.cat(8*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3), hidden_1.squeeze()), 1)
-
-                hidden_2, cell_2 = self.convlstm2(input_tensor=robot_and_tactile, cur_state=[hidden_2, cell_2])
-
-                out3 = self.upsample1(self.relu3(self.upconv1(hidden_2)))
-                skip_connection = torch.cat((out1, out3), axis=1)  # skip connection
-                out4 = self.upsample2(self.relu4(self.upconv2(skip_connection)))
+                out3 = self.upsample1 (self.relu3 (self.upconv1 (hidden_2)))
+                skip_connection = torch.cat ((out1, out3), axis=1)  # skip connection
+                out4 = self.upsample2 (self.relu4 (self.upconv2 (skip_connection)))
 
                 PixelMotionMap = self.tanh(self.outconv(out4))
-                # Final addition layer:
-                output = PixelMotionMap + output
+                output = PixelMotionMap + output  # Final addition layer:
+
                 outputs.append(output)
 
             else:
@@ -183,20 +178,14 @@ class ACPixelMotionNet(nn.Module):
                 out2 = self.maxpool2(self.relu2(self.conv2(out1)))
 
                 hidden_1, cell_1 = self.convlstm1(input_tensor=out2, cur_state=[hidden_1, cell_1])
-
-                # Add in tiled action and state:
-                state_action = torch.cat((state, sample_action), 1)
-                robot_and_tactile = torch.cat((torch.cat(8*[torch.cat(8*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3), hidden_1.squeeze()), 1)
-
-                hidden_2, cell_2 = self.convlstm2(input_tensor=robot_and_tactile, cur_state=[hidden_2, cell_2])
+                hidden_2, cell_2 = self.convlstm2(input_tensor=hidden_1, cur_state=[hidden_2, cell_2])
 
                 out3 = self.upsample1(self.relu3(self.upconv1(hidden_2)))
                 skip_connection = torch.cat((out1, out3), axis=1)  # skip connection
                 out4 = self.upsample2(self.relu4(self.upconv2(skip_connection)))
 
                 PixelMotionMap = self.tanh(self.outconv(out4))
-                # Final addition layer:
-                output = PixelMotionMap + sample_tactile
+                output = PixelMotionMap + sample_tactile  # Final addition layer:
 
                 last_output = output
 
@@ -238,7 +227,7 @@ class ModelTester:
         self.test_full_loader = BG.load_full_data()
 
         # load model:
-        self.full_model = ACPixelMotionNet()
+        self.full_model = PixelMotionNet()
         self.full_model = torch.load(model_path)
         self.full_model.eval()
 
@@ -248,6 +237,7 @@ class ModelTester:
         self.load_scalars()
 
     def test_full_model(self):
+        self.objects = []
         self.performance_data = []
         self.prediction_data  = []
         self.tg_back_scaled   = []
@@ -259,7 +249,6 @@ class ModelTester:
         self.tp5 = []
         self.tp10 = []
         self.current_exp      = 0
-        self.objects = []
 
         for index, batch_features in enumerate(self.test_full_loader):
             tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
@@ -332,20 +321,21 @@ class ModelTester:
                     self.tp5.append(p5)
                     self.tp10.append(p10)
 
+
                 if i == 0 and new_batch != 0:
-                    print ("currently testing trial number: ", str (self.current_exp))
+                    print("currently testing trial number: ", str(self.current_exp))
 
-                    # if train:
-                    #     self.calc_train_trial_performance()
-                    # else:
-                    #     self.calc_trial_performance()
+                    if train:
+                        self.calc_train_trial_performance()
+                    else:
+                        self.calc_trial_performance()
 
-                    self.save_predictions (self.current_exp, scaled=True)
-                    self.tg_back_scaled = self.tg
-                    self.tp1_back_scaled = self.tp1
-                    self.tp5_back_scaled = self.tp5
-                    self.tp10_back_scaled = self.tp10
-                    self.save_predictions (self.current_exp, scaled=False)
+                    # self.save_predictions(self.current_exp, scaled=True)
+                    # self.tg_back_scaled = self.tg
+                    # self.tp1_back_scaled = self.tp1
+                    # self.tp5_back_scaled = self.tp5
+                    # self.tp10_back_scaled = self.tp10
+                    # self.save_predictions(self.current_exp, scaled=False)
 
                     self.prediction_data = []
                     self.tg_back_scaled = []
@@ -358,16 +348,15 @@ class ModelTester:
                     self.tp10 = []
 
                     self.current_exp += 1
-                if i == 0 and new_batch == 0:
+                if i== 0 and new_batch == 0:
                     break
 
-        print ("Hello :D ")
+        print("Hello :D ")
 
-        # if train:
-        #     self.calc_train_performance()
-        # else:
-        #     self.calc_test_performance()
-
+        if train:
+            self.calc_train_performance()
+        else:
+            self.calc_test_performance()
 
     def calc_train_trial_performance(self):
         mae_loss, mae_loss_1, mae_loss_5, mae_loss_10, mae_loss_x, mae_loss_y, mae_loss_z = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -425,7 +414,8 @@ class ModelTester:
             performance_data_full.append(["test loss MAE(L1) Trained object " + str(object) + ": ", (sum([i[0] for i in self.performance_data if i[-1] == str(object)]) / len([i[0] for i in self.performance_data if i[-1] == str(object)]))])
 
         [print (i) for i in performance_data_full]
-        # np.save(data_save_path + 'TRAIN_model_performance_loss_data', np.asarray(performance_data_full))
+        np.save(data_save_path + 'TRAIN_model_performance_loss_data', np.asarray(performance_data_full))
+
 
     def save_predictions(self, experiment_to_test, scaled):
         '''
@@ -601,7 +591,6 @@ class ModelTester:
             for row in reader:
                 meta_data.append(row)
         seen = meta_data[1][2]
-        object = meta_data[1][0]
 
         index = 0
         index_ssim = 0
@@ -644,10 +633,7 @@ class ModelTester:
                                 mae_loss_y/index, mae_loss_z/index, ssim_loss/index_ssim, ssim_loss_1/index,
                                 ssim_loss_5/index, ssim_loss_10/index, ssim_loss_x/index, ssim_loss_y/index,
                                 ssim_loss_z/index, psnr_loss/index, psnr_loss_1/index, psnr_loss_5/index,
-                                psnr_loss_10/index, psnr_loss_x/index, psnr_loss_y/index, psnr_loss_z/index, seen, object])
-        self.objects.append(object)
-
-        print(mae_loss/index, object, meta_data_file_name)
+                                psnr_loss_10/index, psnr_loss_x/index, psnr_loss_y/index, psnr_loss_z/index, seen])
 
     def calc_test_performance(self):
         '''
@@ -664,15 +650,8 @@ class ModelTester:
         performance_data_full.append(["test loss MAE(L1) pred force y: ", (sum([i[5] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss MAE(L1) pred force z: ", (sum([i[6] for i in self.performance_data]) / len(self.performance_data))])
 
-        for trial, values in enumerate(self.performance_data):
-            performance_data_full.append(["test loss MAE(L1) Trial " + str(trial) + "; object: " + str(self.performance_data[trial][-1]) + ": ", self.performance_data[trial][0]])
-
-        self.objects = list(set(self.objects))
-        for object in self.objects:
-            performance_data_full.append(["test loss MAE(L1) Trained object " + str(object) + ": ", (sum([i[0] for i in self.performance_data if i[-1] == str(object)]) / len([i[0] for i in self.performance_data if i[-1] == str(object)]))])
-
-        performance_data_full.append (["test loss MAE(L1) Seen objects: ", (sum([i[0] for i in self.performance_data if i[-2] == '1']) / len([i[0] for i in self.performance_data if i[-2] == '1']))])
-        performance_data_full.append (["test loss MAE(L1) Novel objects: ", (sum([i[0] for i in self.performance_data if i[-2] == '0']) / len([i[0] for i in self.performance_data if i[-2] == '0']))])
+        performance_data_full.append (["test loss MAE(L1) Seen objects: ", (sum([i[0] for i in self.performance_data if i[-1] == '1']) / len([i[0] for i in self.performance_data if i[-1] == '1']))])
+        performance_data_full.append (["test loss MAE(L1) Novel objects: ", (sum([i[0] for i in self.performance_data if i[-1] == '0']) / len([i[0] for i in self.performance_data if i[-1] == '0']))])
 
         performance_data_full.append(["test loss SSIM: ", (sum([i[7] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss SSIM pred ts 1: ", (sum([i[8] for i in self.performance_data]) / len(self.performance_data))])
@@ -682,8 +661,8 @@ class ModelTester:
         performance_data_full.append(["test loss SSIM pred force y: ", (sum([i[12] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss SSIM pred force z: ", (sum([i[13] for i in self.performance_data]) / len(self.performance_data))])
 
-        performance_data_full.append (["test loss SSIM Seen objects: ", (sum([i[7] for i in self.performance_data if i[-2] == '1']) / len([i[7] for i in self.performance_data if i[-2] == '1']))])
-        performance_data_full.append (["test loss SSIM Novel objects: ", (sum([i[7] for i in self.performance_data if i[-2] == '0']) / len([i[7] for i in self.performance_data if i[-2] == '0']))])
+        performance_data_full.append (["test loss SSIM Seen objects: ", (sum([i[7] for i in self.performance_data if i[-1] == '1']) / len([i[7] for i in self.performance_data if i[-1] == '1']))])
+        performance_data_full.append (["test loss SSIM Novel objects: ", (sum([i[7] for i in self.performance_data if i[-1] == '0']) / len([i[7] for i in self.performance_data if i[-1] == '0']))])
 
         performance_data_full.append(["test loss PSNR: ", (sum([i[14] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss PSNR pred ts 1: ", (sum([i[15] for i in self.performance_data]) / len(self.performance_data))])
@@ -693,8 +672,8 @@ class ModelTester:
         performance_data_full.append(["test loss PSNR pred force y: ", (sum([i[19] for i in self.performance_data]) / len(self.performance_data))])
         performance_data_full.append(["test loss PSNR pred force z: ", (sum([i[20] for i in self.performance_data]) / len(self.performance_data))])
 
-        performance_data_full.append (["test loss PSNR Seen objects: ", (sum([i[14] for i in self.performance_data if i[-2] == '1']) / len([i[14] for i in self.performance_data if i[-2] == '1']))])
-        performance_data_full.append (["test loss PSNR Novel objects: ", (sum([i[14] for i in self.performance_data if i[-2] == '0']) / len([i[14] for i in self.performance_data if i[-2] == '0']))])
+        performance_data_full.append (["test loss PSNR Seen objects: ", (sum([i[14] for i in self.performance_data if i[-1] == '1']) / len([i[14] for i in self.performance_data if i[-1] == '1']))])
+        performance_data_full.append (["test loss PSNR Novel objects: ", (sum([i[14] for i in self.performance_data if i[-1] == '0']) / len([i[14] for i in self.performance_data if i[-1] == '0']))])
 
 
         [print (i) for i in performance_data_full]

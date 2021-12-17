@@ -15,9 +15,9 @@ import torch.optim as optim
 import torchvision
 
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet/saved_models/"
-train_data_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/train_image_dataset_10c_10h/"
-scaler_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/"
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet/saved_models/box_only_WITHADD_"
+train_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h/"
+scaler_dir = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
 # unique save title:
 model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
@@ -25,7 +25,7 @@ os.mkdir(model_save_path)
 
 seed = 42
 epochs = 100
-batch_size = 32
+batch_size = 64
 learning_rate = 1e-3
 context_frames = 10
 sequence_length = 20
@@ -51,8 +51,8 @@ class BatchGenerator:
         dataset_train = FullDataSet(self.data_map, train=True)
         dataset_validate = FullDataSet(self.data_map, validation=True)
         transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=8)
+        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True, num_workers=8)
         self.data_map = []
         return train_loader, validation_loader
 
@@ -166,7 +166,9 @@ class PixelMotionNet(nn.Module):
                 skip_connection = torch.cat ((out1, out3), axis=1)  # skip connection
                 out4 = self.upsample2 (self.relu4 (self.upconv2 (skip_connection)))
 
-                output = self.tanh (self.outconv (out4))
+                PixelMotionMap = self.tanh(self.outconv(out4))
+                output = PixelMotionMap + output  # Final addition layer:
+
                 outputs.append(output)
 
             else:
@@ -180,7 +182,9 @@ class PixelMotionNet(nn.Module):
                 skip_connection = torch.cat((out1, out3), axis=1)  # skip connection
                 out4 = self.upsample2(self.relu4(self.upconv2(skip_connection)))
 
-                output = self.tanh(self.outconv(out4))
+                PixelMotionMap = self.tanh(self.outconv(out4))
+                output = PixelMotionMap + sample_tactile  # Final addition layer:
+
                 last_output = output
 
         outputs = [last_output] + outputs
@@ -254,7 +258,7 @@ class ModelTrainer:
             else:
                 if best_val_loss > val_losses / index__:
                     print("saving model")
-                    torch.save(self.full_model, model_save_path + "PixelMotionNet_model")
+                    torch.save(self.full_model, model_save_path + "PixelMotionNet_withADD_model")
                     best_val_loss = val_losses / index__
                 early_stop_clock = 0
                 previous_val_mean_loss = val_losses / index__

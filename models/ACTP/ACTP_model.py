@@ -14,16 +14,16 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTP/saved_models/"
-train_data_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/train_image_dataset_10c_10h/"
-scaler_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/"
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTP/saved_models/box_only_MSEloss_200hidden_"
+train_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/train_linear_dataset_10c_10h/"
+scaler_dir = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
 # unique save title:
 model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
 os.mkdir(model_save_path)
 
 seed = 42
-epochs = 100
+epochs = 50
 batch_size = 32
 learning_rate = 1e-3
 context_frames = 10
@@ -50,8 +50,8 @@ class BatchGenerator:
         dataset_train = FullDataSet(self.data_map, train=True)
         dataset_validate = FullDataSet(self.data_map, validation=True)
         transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=6)
+        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True, num_workers=6)
         self.data_map = []
         return train_loader, validation_loader
 
@@ -79,11 +79,12 @@ class FullDataSet:
 class ACTP(nn.Module):
     def __init__(self):
         super(ACTP, self).__init__()
-        self.lstm1 = nn.LSTM(48 + 12, 200).to(device)  # tactile
-        self.lstm2 = nn.LSTM(200, 200).to(device)  # tactile
+        self.lstm1 = nn.LSTM(48, 200).to(device)  # tactile
+        self.lstm2 = nn.LSTM(200 + 48, 200).to(device)  # tactile
         self.fc1 = nn.Linear(200 + 48, 200).to(device)  # tactile + pos
         self.fc2 = nn.Linear(200, 48).to(device)  # tactile + pos
         self.tan_activation = nn.Tanh().to(device)
+        self.relu_activation = nn.ReLU().to(device)
 
     def forward(self, tactiles, actions):
         state = actions[0]
@@ -97,19 +98,19 @@ class ACTP(nn.Module):
             # 2. Run through lstm:
             if index > context_frames-1:
                 out4 = out4.squeeze()
-                tiled_action_and_state = torch.cat((actions.squeeze()[index+1], state), 1)
-                action_and_tactile = torch.cat((out4, tiled_action_and_state), 1)
-                out1, hidden1 = self.lstm1(action_and_tactile.unsqueeze(0), hidden1)
-                out2, hidden2 = self.lstm2(out1, hidden2)
+                out1, hidden1 = self.lstm1(out4.unsqueeze(0), hidden1)
+                tiled_action_and_state = torch.cat((sample_action, state, sample_action, state, sample_action, state, sample_action, state), 1)
+                action_and_tactile = torch.cat((out1.squeeze(), tiled_action_and_state), 1)
+                out2, hidden2 = self.lstm2(action_and_tactile.unsqueeze(0), hidden2)
                 lstm_and_prev_tactile = torch.cat((out2.squeeze(), out4), 1)
                 out3 = self.tan_activation(self.fc1(lstm_and_prev_tactile))
                 out4 = self.tan_activation(self.fc2(out3))
                 outputs.append(out4.squeeze())
             else:
-                tiled_action_and_state = torch.cat((actions.squeeze()[index+1], state), 1)
-                action_and_tactile = torch.cat((sample_tactile, tiled_action_and_state), 1)
-                out1, hidden1 = self.lstm1(action_and_tactile.unsqueeze(0), hidden1)
-                out2, hidden2 = self.lstm2(out1, hidden2)
+                out1, hidden1 = self.lstm1(sample_tactile.unsqueeze(0), hidden1)
+                tiled_action_and_state = torch.cat((sample_action, state, sample_action, state, sample_action, state, sample_action, state), 1)
+                action_and_tactile = torch.cat((out1.squeeze(), tiled_action_and_state), 1)
+                out2, hidden2 = self.lstm2(action_and_tactile.unsqueeze(0), hidden2)
                 lstm_and_prev_tactile = torch.cat((out2.squeeze(), sample_tactile), 1)
                 out3 = self.tan_activation(self.fc1(lstm_and_prev_tactile))
                 out4 = self.tan_activation(self.fc2(out3))
@@ -118,13 +119,45 @@ class ACTP(nn.Module):
         outputs = [last_output] + outputs
         return torch.stack(outputs)
 
+    # def forward(self, tactiles, actions):
+    #     state = actions[0]
+    #     state.to(device)
+    #     batch_size__ = tactiles.shape[1]
+    #     outputs = []
+    #     hidden1 = (torch.zeros(1, batch_size__, 200, device=torch.device('cuda')), torch.zeros(1, batch_size__, 200, device=torch.device('cuda')))
+    #     hidden2 = (torch.zeros(1, batch_size__, 200, device=torch.device('cuda')), torch.zeros(1, batch_size__, 200, device=torch.device('cuda')))
+    #
+    #     for index, (sample_tactile, sample_action,) in enumerate(zip(tactiles.squeeze()[:-1], actions.squeeze()[1:])):
+    #         # 2. Run through lstm:
+    #         if index > context_frames-1:
+    #             out4 = out4.squeeze()
+    #             tiled_action_and_state = torch.cat((actions.squeeze()[index+1], state), 1)
+    #             action_and_tactile = torch.cat((out4, tiled_action_and_state), 1)
+    #             out1, hidden1 = self.lstm1(action_and_tactile.unsqueeze(0), hidden1)
+    #             out2, hidden2 = self.lstm2(out1, hidden2)
+    #             lstm_and_prev_tactile = torch.cat((out2.squeeze(), out4), 1)
+    #             out3 = self.tan_activation(self.fc1(lstm_and_prev_tactile))
+    #             out4 = self.tan_activation(self.fc2(out3))
+    #             outputs.append(out4.squeeze())
+    #         else:
+    #             out1, hidden1 = self.lstm1(sample_tactile, hidden1)
+    #             tiled_action_and_state = torch.cat((actions.squeeze()[index+1], state), 1)
+    #             action_and_tactile = torch.cat((out1, tiled_action_and_state), 1)
+    #             out2, hidden2 = self.lstm2(action_and_tactile, hidden2)
+    #             lstm_and_prev_tactile = torch.cat((out2.squeeze(), sample_tactile), 1)
+    #             out3 = self.tan_activation(self.fc1(lstm_and_prev_tactile))
+    #             out4 = self.tan_activation(self.fc2(out3))
+    #             last_output = out4
+    #
+    #     outputs = [last_output] + outputs
+    #     return torch.stack(outputs)
 
 class ModelTrainer:
     def __init__(self):
         self.train_full_loader, self.valid_full_loader = BG.load_full_data()
         self.full_model = ACTP()
-        self.criterion = nn.L1Loss()
-        self.criterion1 = nn.L1Loss()
+        self.criterion  = nn.MSELoss()  # nn.L1Loss()
+        self.criterion1 = nn.MSELoss()  # nn.L1Loss()
         self.optimizer = optim.Adam(self.full_model.parameters(), lr=learning_rate)
 
     def train_full_model(self):

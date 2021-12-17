@@ -19,9 +19,9 @@ from sv2p.ssim import Gaussian2d
 from sv2p.model import PosteriorInferenceNet, LatentModel
 from sv2p.criteria import RotationInvarianceLoss
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/SV2P/saved_models/"
-train_data_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/train_image_dataset_10c_10h/"
-scaler_dir = "/home/user/Robotics/Data_sets/slip_detection/formatted_dataset/"
+model_save_path = "/home/willmandil/Robotics/tactile_prediction/tactile_prediction/models/SV2P/saved_models/box_only_"
+train_data_dir = "/home/willmandil/Robotics/Data_sets/box_only_dataset/train_image64_dataset_10c_10h/"
+scaler_dir = "/home/willmandil/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
 # unique save title:
 model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
@@ -36,7 +36,7 @@ klreg_max = 0.1
 n_masks = 10
 indices = (0.9, 0.1)
 max_epoch = 100
-batch_size = 8
+batch_size = 64
 in_channels = 3
 state_action_channels = 12
 context_frames = 10
@@ -45,10 +45,10 @@ train_percentage = 0.9
 # latent_std_min = 0.005
 validation_percentage = 0.1
 
-linear_increase = 20000
-num_iterations_1st_stage = 100000
-num_iterations_2nd_stage = 50000
-num_iterations_3rd_stage = 50000
+linear_increase = 20000 / 10
+num_iterations_1st_stage = 100000 / 10
+num_iterations_2nd_stage = 50000 / 10
+num_iterations_3rd_stage = 50000 / 10
 
 hp = np.array([lr, seed, seqlen, mfreg, krireg, klreg_max, n_masks, max_epoch,
                batch_size, in_channels, state_action_channels, context_frames,
@@ -60,8 +60,8 @@ linear_step = klreg_max / linear_increase
 
 device = "cuda"
 warm_start = False
-dataset_name = "TactileSingle"
-criterion_name = "L2"
+dataset_name = "BoxOnly"
+criterion_name = "L1"
 scheduled_sampling_k = False
 
 torch.manual_seed(seed)
@@ -82,8 +82,8 @@ class BatchGenerator:
         dataset_train = FullDataSet(self.data_map, train=True)
         dataset_validate = FullDataSet(self.data_map, validation=True)
         transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=12)
+        validation_loader = torch.utils.data.DataLoader(dataset_validate, batch_size=batch_size, shuffle=True, num_workers=12)
         self.data_map = []
         return train_loader, validation_loader
 
@@ -118,7 +118,7 @@ class CDNATrainer():
 
         self.net = cdna.CDNA(in_channels, state_action_channels+latent_channels, n_masks, with_generator=False).to(device)
         self.latent_model = LatentModel(batch_size, latent_channels, seqlen).to(device)
-        self.learned_prior_model = PosteriorInferenceNet(tbatch=seqlen).to(device)
+        # self.learned_prior_model = PosteriorInferenceNet(tbatch=seqlen).to(device)
 
         self.stat_names = 'predloss', 'kernloss', 'maskloss', 'loss'
         self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
@@ -147,9 +147,11 @@ class CDNATrainer():
                 for index, batch_features in enumerate(self.train_full_loader):
                     num_iterations += 1
                     if index_stage == 0 and num_iterations > num_iterations_1st_stage:
+                        print("END OF TRAINING STAGE 1")
                         end_of_stage = True
                         break
                     if index_stage == 1 and num_iterations > num_iterations_2nd_stage:
+                        print("END OF TRAINING STAGE 2")
                         end_of_stage = True
                         break
                     if index_stage == 2:
@@ -157,23 +159,26 @@ class CDNATrainer():
                         if self.klreg > klreg_max:
                             self.klreg = klreg_max
 
-                    tactile = torch.zeros([20,batch_size,3,64,64]).to(device)  # batch_features[1].permute(1, 0, 4, 3, 2).to(device)
+                    tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
                     action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
-                    loss, kernloss, maskloss, total_loss = self.training_pass(tactile, action)
-                    total_losses += total_loss
-                    sequences = index
+                    if batch_features[0].shape[0] == batch_size:
+                        loss, kernloss, maskloss, total_loss = self.training_pass(tactile, action)
+                        total_losses += total_loss
+                        sequences = index
 
-                    progress_bar.set_description("epoch: {}, ".format(epoch) + "loss: {:.5f}, ".format(float(total_loss)) + "mean loss: {:.5f}, ".format(total_losses / (index + 1)))
-                    progress_bar.update()
+                        progress_bar.set_description("epoch: {}, ".format(epoch) + "loss: {:.5f}, ".format(float(total_loss)) + "mean loss: {:.5f}, ".format(total_losses / (index + 1)))
+                        progress_bar.update()
 
                 plot_training_loss.append(total_losses / sequences)
 
                 for index, batch_features in enumerate(self.valid_full_loader):
-                    tactile = torch.zeros([20,batch_size,3,64,64]).to(device)  # batch_features[1].permute(1, 0, 4, 3, 2).to(device)
+                    tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
                     action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
-                    loss, kernloss, maskloss, total_loss = self.training_pass(tactile, action, validation=True)
-                    total_losses_val += total_loss
-                    sequences = index
+                    if batch_features[0].shape[0] == batch_size:
+                        loss, kernloss, maskloss, total_loss = self.training_pass(tactile, action, validation=True)
+                        total_losses_val += total_loss
+                        sequences = index
+
                 total_losses_val_mean = total_losses_val / sequences
                 plot_validation_loss.append(total_losses_val_mean)
 
@@ -186,7 +191,8 @@ class CDNATrainer():
 
                 if best_val_loss > total_losses_val_mean:
                     print("saving model")
-                    torch.save(self.full_model, model_save_path + "SV2P_model")
+                    torch.save(self.net, model_save_path + "SV2P_model_net")
+                    torch.save(self.latent_model, model_save_path + "SV2P_model_latent_model")
                     best_val_loss = total_losses_val_mean
 
                 if end_of_stage == True:
@@ -203,12 +209,17 @@ class CDNATrainer():
             prior_sample = samples
             pMean, pSTD = None, None
         elif self.training_stage == "infurence_network" or "divergence_reduction":
-            pMean, pSTD = self.latent_model(frames=tactiles)
-            prior_sample = pMean + torch.exp(pSTD / 2.0) * samples
+            if validation:
+                # change to sampling pMean and pSTD from the learned_prior_model
+                prior_sample = samples
+                pMean, pSTD = None, None
+            else:
+                pMean, pSTD = self.latent_model(frames=tactiles)
+                prior_sample = pMean + torch.exp(pSTD / 2.0) * samples
 
         if validation:
             with torch.no_grad():
-                for index,(sample_tactile, sample_action) in enumerate(zip(tactiles[0:-1].squeeze(), actions[1:].squeeze())):
+                for index, (sample_tactile, sample_action) in enumerate(zip(tactiles[0:-1].squeeze(), actions[1:].squeeze())):
                     state_action = torch.cat((state, sample_action), 1)
                     tsa = torch.cat(8*[torch.cat(8*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3)
                     tsap = torch.cat([prior_sample, tsa], axis=1)
@@ -219,7 +230,7 @@ class CDNATrainer():
                         predictions_t, hidden, cdna_kerns_t, masks_t = self.net(sample_tactile, conditions=tsap, hidden_states=hidden)
                         last_output = predictions_t
         else:
-            for index,(sample_tactile, sample_action) in enumerate(zip(tactiles[0:-1].squeeze(), actions[1:].squeeze())):
+            for index, (sample_tactile, sample_action) in enumerate(zip(tactiles[0:-1].squeeze(), actions[1:].squeeze())):
                 state_action = torch.cat((state, sample_action), 1)
                 tsa = torch.cat(8*[torch.cat(8*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3)
                 tsap = torch.cat([prior_sample, tsa], axis=1)
@@ -242,7 +253,7 @@ class CDNATrainer():
             kernloss += kernloss_t
             maskloss += maskloss_t
             KLD_loss += KLD_loss_t
-        total_loss =(loss + kernloss + maskloss + KLD_loss) / context_frames
+        total_loss = (loss + kernloss + maskloss + KLD_loss) / context_frames
 
         if not validation:
             self.optimizer.zero_grad()
@@ -273,58 +284,4 @@ if __name__ == '__main__':
     BG = BatchGenerator()
     Trainer = CDNATrainer()
     Trainer.run()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

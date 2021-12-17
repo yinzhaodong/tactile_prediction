@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 
-model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/box_only_dataset_"
+model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/box_only_dataset_WITH_ADD_"
 train_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h/"
 scaler_dir = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
@@ -170,7 +170,9 @@ class ACPixelMotionNet(nn.Module):
                 skip_connection = torch.cat((out1, out3), axis=1)  # skip connection
                 out4 = self.upsample2(self.relu4(self.upconv2(skip_connection)))
 
-                output = self.tanh(self.outconv(out4))
+                PixelMotionMap = self.tanh(self.outconv(out4))
+                # Final addition layer:
+                output = PixelMotionMap + output
                 outputs.append(output)
 
             else:
@@ -189,7 +191,10 @@ class ACPixelMotionNet(nn.Module):
                 skip_connection = torch.cat((out1, out3), axis=1)  # skip connection
                 out4 = self.upsample2(self.relu4(self.upconv2(skip_connection)))
 
-                output = self.tanh(self.outconv(out4))
+                PixelMotionMap = self.tanh(self.outconv(out4))
+                # Final addition layer:
+                output = PixelMotionMap + sample_tactile
+
                 last_output = output
 
         outputs = [last_output] + outputs
@@ -263,7 +268,7 @@ class ModelTrainer:
             else:
                 if best_val_loss > val_losses / index__:
                     print("saving model")
-                    torch.save(self.full_model, model_save_path + "ACPixelMotionNet_model")
+                    torch.save(self.full_model, model_save_path + "ACPixelMotionNet_with_addition_model")
                     best_val_loss = val_losses / index__
                 early_stop_clock = 0
                 previous_val_mean_loss = val_losses / index__
