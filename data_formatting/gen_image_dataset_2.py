@@ -5,8 +5,10 @@ import os
 import cv2
 import csv
 import glob
+import torch
 import numpy as np
 import pandas as pd
+
 
 from tqdm import tqdm
 from pickle import dump
@@ -18,14 +20,15 @@ dataset_path = "/home/user/Robotics/Data_sets/box_only_dataset/"
 # Hyper-parameters:
 train_data_dir = dataset_path + 'train/'
 test_data_dir  = dataset_path + 'test/'
-train_out_dir  = dataset_path + 'train_image_dataset_10c_10h_64_universal/'
-test_out_dir   = dataset_path + 'test_image_dataset_10c_10h_64_universal/'
-scaler_out_dir = dataset_path + 'scalar_info_universal/'
+# train_out_dir  = dataset_path + 'train_image_dataset_10c_10h_64_universal/'
+train_out_dir  = dataset_path + 'train_linear_dataset_10c_10h/'
+test_out_dir   = dataset_path + 'test_linear_dataset_10c_10h/'
+scaler_out_dir = dataset_path + 'scalar_linear_test/'
 
 smooth = True
-image = True
-image_height = 64
-image_width = 64
+image = False
+image_height = 0
+image_width = 0
 context_length = 10
 horrizon_length = 10
 
@@ -54,13 +57,18 @@ class data_formatter:
                 files_to_run = self.files_test
 
             for experiment_number, file in tqdm(enumerate(files_to_run)):
-                if stage == test_out_dir:
-                    path_save = stage + "test_trial_" + str(experiment_number) + '/'
-                    os.mkdir(path_save)
-                    self.path_file = []
-                    index_to_save = 0
-                else:
-                    path_save = stage
+                # if stage == test_out_dir:
+                #     path_save = stage + "test_trial_" + str(experiment_number) + '/'
+                #     os.mkdir(path_save)
+                #     self.path_file = []
+                #     index_to_save = 0
+                # else:
+                #     path_save = stage
+
+                path_save = stage + "test_trial_" + str(experiment_number) + '/'
+                os.mkdir(path_save)
+                self.path_file = []
+                index_to_save = 0
 
                 tactile, robot, meta = self.load_file_data(file)
 
@@ -74,11 +82,15 @@ class data_formatter:
 
                 tactile_image_names = []
                 if self.image:
+                    current_images = []
                     for time_step in range(len(tactile)):
                         current_image = self.create_image(tactile[time_step][0], tactile[time_step][1], tactile[time_step][2])
                         image_name = "tactile_image_" + str(experiment_number) + "_time_step_" + str(time_step) + ".npy"
                         tactile_image_names.append(image_name)
                         np.save(path_save + image_name, current_image)
+                        # current_images.append(cv2.resize(current_image, dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
+
+                    # tactile = np.array(current_images).astype(np.float64)
 
                 sequence_length = self.context_length + self.horrizon_length
                 for time_step in range(len(tactile) - sequence_length):
@@ -108,9 +120,12 @@ class data_formatter:
                     self.path_file.append(ref)
                     index_to_save += 1
 
-                if stage == test_out_dir:
-                    self.test_no = experiment_number
-                    self.save_map(path_save, test=True)
+                # if stage == test_out_dir:
+                #     self.test_no = experiment_number
+                #     self.save_map(path_save, test=True)
+
+                self.test_no = experiment_number
+                self.save_map(path_save, test=True)
 
             self.save_map(path_save)
 
@@ -142,7 +157,7 @@ class data_formatter:
         self.tactile_standard_scaler = [preprocessing.StandardScaler().fit(self.full_data_tactile[:, feature]) for feature in range(3)]
         self.tactile_min_max_scalar = [preprocessing.MinMaxScaler(feature_range=(0, 1)).fit(self.tactile_standard_scaler[feature].transform(self.full_data_tactile[:, feature])) for feature in range(3)]
 
-        # self.save_scalars()
+        self.save_scalars()
 
     def load_file_data(self, file):
         robot_state = np.array(pd.read_csv(file + '/robot_state.csv', header=None))
@@ -183,19 +198,19 @@ class data_formatter:
 
     def save_scalars(self):
         # save the scalars
-        dump(self.tactile_standard_scaler[0], open(scaler_out_dir + 'tactile_standard_scaler_x.pkl', 'wb'))
-        dump(self.tactile_standard_scaler[1], open(scaler_out_dir + 'tactile_standard_scaler_y.pkl', 'wb'))
-        dump(self.tactile_standard_scaler[2], open(scaler_out_dir + 'tactile_standard_scaler_z.pkl', 'wb'))
-        dump(self.tactile_min_max_scalar[0], open(scaler_out_dir + 'tactile_min_max_scalar_x.pkl', 'wb'))
-        dump(self.tactile_min_max_scalar[1], open(scaler_out_dir + 'tactile_min_max_scalar_y.pkl', 'wb'))
-        dump(self.tactile_min_max_scalar[2], open(scaler_out_dir + 'tactile_min_max_scalar.pkl', 'wb'))
+        dump(self.tactile_standard_scaler[0], open(scaler_out_dir + 'tactile_standard_scaler_x.pkl', 'wb'), protocol=2)
+        dump(self.tactile_standard_scaler[1], open(scaler_out_dir + 'tactile_standard_scaler_y.pkl', 'wb'), protocol=2)
+        dump(self.tactile_standard_scaler[2], open(scaler_out_dir + 'tactile_standard_scaler_z.pkl', 'wb'), protocol=2)
+        dump(self.tactile_min_max_scalar[0], open(scaler_out_dir + 'tactile_min_max_scalar_x.pkl', 'wb'), protocol=2)
+        dump(self.tactile_min_max_scalar[1], open(scaler_out_dir + 'tactile_min_max_scalar_y.pkl', 'wb'), protocol=2)
+        dump(self.tactile_min_max_scalar[2], open(scaler_out_dir + 'tactile_min_max_scalar.pkl', 'wb'), protocol=2)
 
-        dump(self.robot_min_max_scalar[0], open(scaler_out_dir + 'robot_min_max_scalar_px.pkl', 'wb'))
-        dump(self.robot_min_max_scalar[1], open(scaler_out_dir + 'robot_min_max_scalar_py.pkl', 'wb'))
-        dump(self.robot_min_max_scalar[2], open(scaler_out_dir + 'robot_min_max_scalar_pz.pkl', 'wb'))
-        dump(self.robot_min_max_scalar[3], open(scaler_out_dir + 'robot_min_max_scalar_ex.pkl', 'wb'))
-        dump(self.robot_min_max_scalar[4], open(scaler_out_dir + 'robot_min_max_scalar_ey.pkl', 'wb'))
-        dump(self.robot_min_max_scalar[5], open(scaler_out_dir + 'robot_min_max_scalar_ez.pkl', 'wb'))
+        dump(self.robot_min_max_scalar[0], open(scaler_out_dir + 'robot_min_max_scalar_px.pkl', 'wb'), protocol=2)
+        dump(self.robot_min_max_scalar[1], open(scaler_out_dir + 'robot_min_max_scalar_py.pkl', 'wb'), protocol=2)
+        dump(self.robot_min_max_scalar[2], open(scaler_out_dir + 'robot_min_max_scalar_pz.pkl', 'wb'), protocol=2)
+        dump(self.robot_min_max_scalar[3], open(scaler_out_dir + 'robot_min_max_scalar_ex.pkl', 'wb'), protocol=2)
+        dump(self.robot_min_max_scalar[4], open(scaler_out_dir + 'robot_min_max_scalar_ey.pkl', 'wb'), protocol=2)
+        dump(self.robot_min_max_scalar[5], open(scaler_out_dir + 'robot_min_max_scalar_ez.pkl', 'wb'), protocol=2)
 
     def create_image(self, tactile_x, tactile_y, tactile_z):
         # convert tactile data into an image:

@@ -4,6 +4,7 @@ import os
 import csv
 import cv2
 import numpy as np
+import math
 
 from pickle import load
 from torch.utils.data import Dataset
@@ -11,15 +12,17 @@ from torch.utils.data import Dataset
 import torch
 import torch.nn as nn
 import torchvision
+from tqdm import tqdm
 
 from ACTP.ACTP_model import ACTP
 from ACTVP.ACTVP_model import ACTVP
+from ACTVP.ACTVP_model import ACTVP_double
 
 from PMN.PixelMotionNet import PixelMotionNet
 from PMN.PixelMotionNet import ConvLSTMCell
 
 # from PMN_AC.AC_PMN import ACPixelMotionNet
-# from PMN_AC_NA.AC_PMN import ACPixelMotionNet
+from PMN_AC_NA.AC_PMN import ACPixelMotionNet
 
 from MLP.simple_MLP_model import simple_MLP
 from MLP_AC.simple_ACMLP_model import simple_ACMLP
@@ -30,6 +33,20 @@ torch.manual_seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # use gpu if available
+
+# model_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/uninversal_trainer/ACTVP/saved_models/model_double_07_01_2022_13_25/ACTVP_double"
+# # model_path_latent = "/home/user/Robotics/tactile_prediction/tactile_prediction/uninversal_trainer/SV2P/saved_models/box_only_model_14_12_2021_12_24/SV2P_model_latent_model"
+# data_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/uninversal_trainer/ACTVP/saved_models/model_double_07_01_2022_13_25/"
+# test_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h/"
+# scaler_dir = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info_universal/"
+#
+# number_of_trials = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]  # 0-22
+# batch_size = 32
+# context_frames = 10
+# sequence_length = 10
+# image_size = 32
+# criterion = "L1"
+# SV2P_latent_channels = 10
 
 
 class BatchGenerator:
@@ -109,25 +126,28 @@ class UniversalModelTester:
             BG = BatchGenerator(self.test_data_dir, self.batch_size, self.image_size, trial)
             self.test_full_loader = BG.load_full_data()
 
-            for index, batch_features in enumerate(self.test_full_loader):
-                tactile_predictions, tactile_groundtruth, loss = self.run_batch(batch_features[1], batch_features[0])
-                if index == 0:
-                    if self.image_size == 0:
-                        prediction_data = np.array(tactile_predictions.permute(1, 0, 2).cpu().detach())
-                        groundtruth_data = np.array(tactile_groundtruth.permute(1, 0, 2).cpu().detach())
+            for index, batch_features in tqdm(enumerate(self.test_full_loader)):
+                if batch_features[1].shape[0] != 1:
+                    tactile_predictions, tactile_groundtruth = self.run_batch(batch_features[1], batch_features[0])
+                    if index == 0:
+                        if self.image_size == 0:
+                            prediction_data = np.array(tactile_predictions.permute(1, 0, 2).cpu().detach())
+                            groundtruth_data = np.array(tactile_groundtruth.permute(1, 0, 2).cpu().detach())
+                        else:
+                            prediction_data = np.array(tactile_predictions.permute(1, 0, 2, 3, 4).cpu().detach())
+                            groundtruth_data = np.array(tactile_groundtruth.permute(1, 0, 2, 3, 4).cpu().detach())
                     else:
-                        prediction_data = np.array(tactile_predictions.permute(1, 0, 2, 3, 4).cpu().detach())
-                        groundtruth_data = np.array(tactile_groundtruth.permute(1, 0, 2, 3, 4).cpu().detach())
-                else:
-                    if self.image_size == 0:
-                        prediction_data = np.concatenate((prediction_data, np.array(tactile_predictions.permute(1, 0, 2).cpu().detach())), axis=0)
-                        groundtruth_data = np.concatenate((groundtruth_data, np.array(tactile_groundtruth.permute(1, 0, 2).cpu().detach())), axis=0)
-                    else:
-                        prediction_data = np.concatenate((prediction_data, np.array(tactile_predictions.permute(1, 0, 2, 3, 4).cpu().detach())), axis=0)
-                        groundtruth_data = np.concatenate((groundtruth_data, np.array(tactile_groundtruth.permute(1, 0, 2, 3, 4).cpu().detach())), axis=0)
+                        if self.image_size == 0:
+                            prediction_data = np.concatenate((prediction_data, np.array(tactile_predictions.permute(1, 0, 2).cpu().detach())), axis=0)
+                            groundtruth_data = np.concatenate((groundtruth_data, np.array(tactile_groundtruth.permute(1, 0, 2).cpu().detach())), axis=0)
+                        else:
+                            prediction_data = np.concatenate((prediction_data, np.array(tactile_predictions.permute(1, 0, 2, 3, 4).cpu().detach())), axis=0)
+                            groundtruth_data = np.concatenate((groundtruth_data, np.array(tactile_groundtruth.permute(1, 0, 2, 3, 4).cpu().detach())), axis=0)
 
-            prediction_data_descaled, groundtruth_data_descaled = self.scale_back(np.array(prediction_data), np.array(groundtruth_data))
-            self.save_trial(prediction_data_descaled, groundtruth_data_descaled, trial_number=trial)
+            # prediction_data_descaled, groundtruth_data_descaled = self.scale_back(np.array(prediction_data), np.array(groundtruth_data))
+            # self.save_trial(prediction_data_descaled, groundtruth_data_descaled, trial_number=trial)
+            # self.save_trial(np.array(prediction_data_descaled), np.array(groundtruth_data_descaled), trial_number=trial)
+            self.save_trial(np.array(prediction_data), np.array(groundtruth_data), trial_number=trial)
 
     def scale_back(self, tactile_data, groundtruth_data):
         pt_descalled_data = []
@@ -152,32 +172,35 @@ class UniversalModelTester:
                 xela_gtz_inverse_full = self.scaler_tz.inverse_transform(xela_gtz_inverse_minmax)
                 gt_descalled_data.append(np.concatenate((xela_gtx_inverse_full, xela_gty_inverse_full, xela_gtz_inverse_full), axis=1))
         else:
-            for time_step in range(tactile_data.shape[0]):
+            for time_step in tqdm(range(tactile_data.shape[0])):
                 # convert the image back to the 48 taxel features:
-                sequence_p = []
-                sequence_g = []
-                for ps in range(tactile_data.shape[1]):
-                    sequence_p.append(cv2.resize(torch.tensor(tactile_data)[time_step][ps].permute(1, 2, 0).numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
-                    sequence_g.append(cv2.resize(torch.tensor(groundtruth_data)[time_step][ps].permute(1, 2, 0).numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
+                pt_descalled_data.append(cv2.resize(torch.tensor(tactile_data)[time_step][-1].permute(1, 2, 0).numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
+                gt_descalled_data.append(cv2.resize(torch.tensor(groundtruth_data)[time_step][0].permute(1, 2, 0).numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
 
-                (ptx, pty, ptz) = np.split(np.array(sequence_p), 3, axis=1)
-                (gtx, gty, gtz) = np.split(np.array(sequence_g), 3, axis=1)
-
-                xela_ptx_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(ptx)
-                xela_pty_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(pty)
-                xela_ptz_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(ptz)
-                xela_ptx_inverse_full = self.scaler_tx.inverse_transform(xela_ptx_inverse_minmax)
-                xela_pty_inverse_full = self.scaler_ty.inverse_transform(xela_pty_inverse_minmax)
-                xela_ptz_inverse_full = self.scaler_tz.inverse_transform(xela_ptz_inverse_minmax)
-                pt_descalled_data.append(np.concatenate((xela_ptx_inverse_full, xela_pty_inverse_full, xela_ptz_inverse_full), axis=1))
-
-                xela_gtx_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(gtx)
-                xela_gty_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(gty)
-                xela_gtz_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(gtz)
-                xela_gtx_inverse_full = self.scaler_tx.inverse_transform(xela_gtx_inverse_minmax)
-                xela_gty_inverse_full = self.scaler_ty.inverse_transform(xela_gty_inverse_minmax)
-                xela_gtz_inverse_full = self.scaler_tz.inverse_transform(xela_gtz_inverse_minmax)
-                gt_descalled_data.append(np.concatenate((xela_gtx_inverse_full, xela_gty_inverse_full, xela_gtz_inverse_full), axis=1))
+                # sequence_p = []
+                # sequence_g = []
+                # for ps in range(tactile_data.shape[1]):
+                #     sequence_p.append(cv2.resize(torch.tensor(tactile_data)[time_step][ps].permute(1, 2, 0).numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
+                #     sequence_g.append(cv2.resize(torch.tensor(groundtruth_data)[time_step][ps].permute(1, 2, 0).numpy(), dsize=(4, 4), interpolation=cv2.INTER_CUBIC).flatten())
+                #
+                # (ptx, pty, ptz) = np.split(np.array(sequence_p), 3, axis=1)
+                # (gtx, gty, gtz) = np.split(np.array(sequence_g), 3, axis=1)
+                #
+                # xela_ptx_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(ptx)
+                # xela_pty_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(pty)
+                # xela_ptz_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(ptz)
+                # xela_ptx_inverse_full = self.scaler_tx.inverse_transform(xela_ptx_inverse_minmax)
+                # xela_pty_inverse_full = self.scaler_ty.inverse_transform(xela_pty_inverse_minmax)
+                # xela_ptz_inverse_full = self.scaler_tz.inverse_transform(xela_ptz_inverse_minmax)
+                # pt_descalled_data.append(np.concatenate((xela_ptx_inverse_full, xela_pty_inverse_full, xela_ptz_inverse_full), axis=1))
+                #
+                # xela_gtx_inverse_minmax = self.min_max_scalerx_full_data.inverse_transform(gtx)
+                # xela_gty_inverse_minmax = self.min_max_scalery_full_data.inverse_transform(gty)
+                # xela_gtz_inverse_minmax = self.min_max_scalerz_full_data.inverse_transform(gtz)
+                # xela_gtx_inverse_full = self.scaler_tx.inverse_transform(xela_gtx_inverse_minmax)
+                # xela_gty_inverse_full = self.scaler_ty.inverse_transform(xela_gty_inverse_minmax)
+                # xela_gtz_inverse_full = self.scaler_tz.inverse_transform(xela_gtz_inverse_minmax)
+                # gt_descalled_data.append(np.concatenate((xela_gtx_inverse_full, xela_gty_inverse_full, xela_gtz_inverse_full), axis=1))
 
         return np.array(pt_descalled_data), np.array(gt_descalled_data)
 
@@ -196,13 +219,12 @@ class UniversalModelTester:
         else:
             tactile_predictions = self.model.forward(tactiles=tactile, actions=action)  # Step 3. Run our forward pass.
 
-
         if self.model_name == "MLP" or self.model_name == "MLP-AC":
-
             tactile_predictions = torch.tensor(np.array(np.split(np.array(tactile_predictions.cpu().detach()), self.sequence_length, axis=1))).to(device)
+            # tactile_predictions = tactile_predictions.reshape(tactile_predictions.shape[0], 10, 48).permute(1, 0, 2)
 
-        loss = self.criterion(tactile_predictions, tactile[self.context_frames:])
-        return tactile_predictions, tactile[self.context_frames:], loss.item()
+        # loss = self.criterion(tactile_predictions, tactile[self.context_frames:])
+        return tactile_predictions, tactile[self.context_frames-1:]  #, loss.item()
 
     def CDNA_pass_through(self, tactiles, actions):
         hidden = None
@@ -266,15 +288,31 @@ class UniversalModelTester:
         self.min_max_scalery_full_data = load(open(self.scaler_dir + "tactile_min_max_scalar_y.pkl", 'rb'))
         self.min_max_scalerz_full_data = load(open(self.scaler_dir + "tactile_min_max_scalar.pkl", 'rb'))
 
+    def create_image(self, tactile_x, tactile_y, tactile_z):
+        # convert tactile data into an image:
+        image = np.zeros((4, 4, 3), np.float32)
+        index = 0
+        for x in range(4):
+            for y in range(4):
+                image[x][y] = [tactile_x[index], tactile_y[index], tactile_z[index]]
+                index += 1
+        reshaped_image = np.rot90(cv2.resize(image.astype(np.float32), dsize=(self.image_height, self.image_width), interpolation=cv2.INTER_CUBIC), k=1, axes=(0, 1))
+        return reshaped_image
+
 
 def main():
-    model_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/uninversal_trainer/SV2P/saved_models/box_only_model_14_12_2021_12_24/SV2P_model_net"
-    model_path_latent = "/home/user/Robotics/tactile_prediction/tactile_prediction/uninversal_trainer/SV2P/saved_models/box_only_model_14_12_2021_12_24/SV2P_model_latent_model"
-    data_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/uninversal_trainer/SV2P/saved_models/box_only_model_14_12_2021_12_24/"
-    test_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/test_linear_dataset_10c_10h_universal/"
-    scaler_dir = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info_universal/"
+    # model_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/uninversal_trainer/ACTP/saved_models/model_04_01_2022_16_05/ACTP"
+    # model_path_latent = "/home/user/Robotics/tactile_prediction/tactile_prediction/uninversal_trainer/SV2P/saved_models/box_only_model_14_12_2021_12_24/SV2P_model_latent_model"
+    # data_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/uninversal_trainer/ACTP/saved_models/model_04_01_2022_16_05/RSS_vids/"
+    # test_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/RSS_VIDEO_test_linear_qual_dataset_10c_10h_universal/"
+    # scaler_dir = "/home/user/Robotics/Data_sets/box_only_dataset/RSS_VIDEO_scalar_info_universal/"
 
-    number_of_trials = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]  # 0-22
+    model_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/uninversal_trainer/MLP_AC/saved_models/box_only_model_09_12_2021_15_03/MLP_AC_model"
+    data_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/uninversal_trainer/MLP_AC/saved_models/box_only_model_09_12_2021_15_03/"
+    test_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/test_linear_dataset_10c_10h/"
+    scaler_dir = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_linear_test/"
+
+    number_of_trials = [i for i in range(52)]  # [23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]  # [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]  # 0-22
     batch_size = 32
     context_frames = 10
     sequence_length = 10
@@ -284,7 +322,7 @@ def main():
 
     model = torch.load(model_path).to(device)
     model.eval()
-    model_name = "SV2P"
+    model_name = "MLP-AC"
 
     UMT = UniversalModelTester(model, number_of_trials, test_data_dir, image_size, criterion, model_path,
                          data_save_path, scaler_dir, model_name, batch_size,

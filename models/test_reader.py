@@ -19,10 +19,11 @@ from tqdm import tqdm
 from datetime import datetime
 from torch.utils.data import Dataset
 
-data_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/SVG/saved_models/box_only_3layers_model_13_12_2021_13_23/"
+# data_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/CDNA/saved_models/model_30_11_2021_15_24/test_descaled/"
+data_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/SV2P/saved_models/box_only_model_14_12_2021_12_24/test_scaled/"
 # data_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/PixelMotionNet-AC/saved_models/box_only_dataset_model_25_11_2021_14_10/"
 
-model_name = "PMN_AC_add"
+model_name = "SV2P"
 
 seed = 42
 batch_size = 32
@@ -35,8 +36,8 @@ torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # use gpu if available
 
-test_trial = 23
-taxel = 38
+test_trial = 7
+taxel = 11
 
 trim_min = 0
 trim_max = -1
@@ -98,11 +99,11 @@ def create_test_plots_aligned(experiment_to_test):
     plt.show()
 
 def create_test_plots(experiment_to_test):
-    trial_groundtruth_data = np.load(data_save_path + "test_SCALED_test_plots_" + str(test_trial) + "/trial_groundtruth_data.npy")
-    trial_predicted_data_t1 = np.load(data_save_path + "test_SCALED_test_plots_" + str(test_trial) + "/prediction_data_t1.npy")
-    trial_predicted_data_t5 = np.load(data_save_path + "test_SCALED_test_plots_" + str(test_trial) + "/prediction_data_t5.npy")
-    trial_predicted_data_t10 = np.load(data_save_path + "test_SCALED_test_plots_" + str(test_trial) + "/prediction_data_t10.npy")
-    meta = np.load(data_save_path + "test_SCALED_test_plots_" + str(test_trial) + "/meta_data.npy")
+    trial_groundtruth_data = np.load(data_save_path + "test_DESCALED_test_plots_" + str(test_trial) + "/trial_groundtruth_data.npy")
+    trial_predicted_data_t1 = np.load(data_save_path + "test_DESCALED_test_plots_" + str(test_trial) + "/prediction_data_t1.npy")
+    trial_predicted_data_t5 = np.load(data_save_path + "test_DESCALED_test_plots_" + str(test_trial) + "/prediction_data_t5.npy")
+    trial_predicted_data_t10 = np.load(data_save_path + "test_DESCALED_test_plots_" + str(test_trial) + "/prediction_data_t10.npy")
+    meta = np.load(data_save_path + "test_DESCALED_test_plots_" + str(test_trial) + "/meta_data.npy")
 
     print(trial_predicted_data_t10[0][0])
     print(trial_predicted_data_t5[0][0])

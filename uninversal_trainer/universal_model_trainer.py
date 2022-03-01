@@ -2,6 +2,7 @@
 # RUN IN PYTHON 3
 import os
 import csv
+import cv2
 import copy
 import numpy as np
 
@@ -16,6 +17,7 @@ import torchvision
 
 from ACTP.ACTP_model import ACTP
 from ACTVP.ACTVP_model import ACTVP
+from ACTVP.ACTVP_model import ACTVP_double
 
 seed = 42
 
@@ -66,8 +68,8 @@ class FullDataSet:
 
         if self.image_size == 0:
             tactile_data = np.load(self.train_data_dir + value[1])
-            experiment_number = np.load(self.train_data_dir + value[2])
-            time_steps = np.load(self.train_data_dir + value[3])
+            experiment_number = np.load(self.train_data_dir + value[3])
+            time_steps = np.load(self.train_data_dir + value[4])
         else:
             tactile_data = []
             for image_name in np.load(self.train_data_dir + value[2]):
@@ -113,7 +115,7 @@ class UniversalModelTrainer:
             self.train_loss = 0.0
             self.val_loss = 0.0
 
-            # trainging
+            # training
             for index, batch_features in enumerate(self.train_full_loader):
                 self.optimizer.zero_grad()
                 action = batch_features[0].squeeze(-1).permute(1, 0, 2).to(device)
@@ -121,6 +123,7 @@ class UniversalModelTrainer:
                     tactile = batch_features[1].permute(1, 0, 4, 3, 2).to(device)
                 else:
                     tactile = torch.flatten(batch_features[1], start_dim=2).permute(1, 0, 2).to(device)
+
                 loss = self.run_batch(tactile, action, train=True)
                 progress_bar.set_description("epoch: {}, ".format(epoch) + "loss: {:.4f}, ".format(float(loss)) + "mean loss: {:.4f}, ".format(self.train_loss/(index+1)))
                 train_max_index = index
@@ -161,12 +164,23 @@ class UniversalModelTrainer:
 
         return loss.item()
 
+    def create_image(self, tactile_x, tactile_y, tactile_z):
+        # convert tactile data into an image:
+        image = np.zeros((4, 4, 3), np.float32)
+        index = 0
+        for x in range(4):
+            for y in range(4):
+                image[x][y] = [tactile_x[index], tactile_y[index], tactile_z[index]]
+                index += 1
+        reshaped_image = np.rot90(cv2.resize(image.astype(np.float32), dsize=(self.image_height, self.image_width), interpolation=cv2.INTER_CUBIC), k=1, axes=(0, 1))
+        return reshaped_image
+
 def main():
     model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/uninversal_trainer/ACTP/saved_models/"
-    train_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/train_linear_dataset_10c_10h_universal/"
+    train_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h/"
 
     # unique save title:
-    model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
+    model_save_path = model_save_path + "model_qual_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
     os.mkdir(model_save_path)
 
     epochs = 50
@@ -178,7 +192,7 @@ def main():
     validation_percentage = 0.1
     image_size = 0  # set to zero if linear data
     criterion = "L1"
-    model_name = "ACTP"
+    model_name = "ACTP_qual"
     model = ACTP(device=device, context_frames=context_frames)
 
     UMT = UniversalModelTrainer(model, criterion, image_size, model_save_path, model_name,

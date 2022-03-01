@@ -19,8 +19,8 @@ train_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/train_linear_da
 scaler_dir = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
 # unique save title:
-model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
-os.mkdir(model_save_path)
+# model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
+# os.mkdir(model_save_path)
 
 seed = 42
 epochs = 50

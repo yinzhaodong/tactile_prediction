@@ -15,12 +15,12 @@ import torch.optim as optim
 import torchvision
 
 model_save_path = "/home/user/Robotics/tactile_prediction/tactile_prediction/models/ACTVP/saved_models/box_only_THDloss_"
-train_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/train_image_dataset_10c_10h/"
+train_data_dir = "/home/user/Robotics/Data_sets/box_only_dataset/test_image_dataset_10c_10h/"
 scaler_dir = "/home/user/Robotics/Data_sets/box_only_dataset/scalar_info/"
 
 # unique save title:
 model_save_path = model_save_path + "model_" + datetime.now().strftime("%d_%m_%Y_%H_%M/")
-os.mkdir(model_save_path)
+# os.mkdir(model_save_path)
 
 seed = 42
 epochs = 50
@@ -147,6 +147,52 @@ class ACTVP(nn.Module):
                 last_output = output
         outputs = [last_output] + outputs
         return torch.stack(outputs)
+
+
+class ACTVP_double(nn.Module):
+    def __init__(self, device, context_frames):
+        super(ACTVP_double, self).__init__()
+        self.device = device
+        self.context_frames = context_frames
+        self.convlstm1 = ConvLSTMCell(input_dim=3, hidden_dim=12, kernel_size=(3, 3), bias=True, device=self.device).cuda()
+        self.convlstm2 = ConvLSTMCell(input_dim=24, hidden_dim=24, kernel_size=(3, 3), bias=True, device=self.device).cuda()
+        self.conv1 = nn.Conv2d(in_channels=27, out_channels=24, kernel_size=5, stride=1, padding=2).cuda()
+        self.conv2 = nn.Conv2d(in_channels=24, out_channels=3, kernel_size=5, stride=1, padding=2).cuda()
+
+    def forward(self, tactiles, actions):
+        self.batch_size = actions.shape[1]
+        state = actions[0]
+        state.to(self.device)
+        batch_size__ = tactiles.shape[1]
+        hidden_1, cell_1 = self.convlstm1.init_hidden(batch_size=self.batch_size, image_size=(32, 32))
+        hidden_2, cell_2 = self.convlstm2.init_hidden(batch_size=self.batch_size, image_size=(32, 32))
+        outputs = []
+        for index, (sample_tactile, sample_action) in enumerate(zip(tactiles[0:-1].squeeze(), actions[1:].squeeze())):
+            sample_tactile.to(self.device)
+            sample_action.to(self.device)
+            # 2. Run through lstm:
+            if index > self.context_frames-1:
+                hidden_1, cell_1 = self.convlstm1(input_tensor=output, cur_state=[hidden_1, cell_1])
+                state_action = torch.cat((state, sample_action), 1)
+                robot_and_tactile = torch.cat((torch.cat(32*[torch.cat(32*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3), hidden_1.squeeze()), 1)
+                hidden_2, cell_2 = self.convlstm2(input_tensor=robot_and_tactile, cur_state=[hidden_2, cell_2])
+                skip_connection_added = torch.cat((hidden_2, output), 1)
+                output1 = self.conv1(skip_connection_added)
+                output = self.conv2(output1)
+                outputs.append(output)
+            else:
+                hidden_1, cell_1 = self.convlstm1(input_tensor=sample_tactile, cur_state=[hidden_1, cell_1])
+                state_action = torch.cat((state, sample_action), 1)
+                robot_and_tactile = torch.cat((torch.cat(32*[torch.cat(32*[state_action.unsqueeze(2)], axis=2).unsqueeze(3)], axis=3), hidden_1.squeeze()), 1)
+                hidden_2, cell_2 = self.convlstm2(input_tensor=robot_and_tactile, cur_state=[hidden_2, cell_2])
+                skip_connection_added = torch.cat((hidden_2, sample_tactile), 1)
+                output1 = self.conv1(skip_connection_added)
+                output = self.conv2(output1)
+                last_output = output
+        outputs = [last_output] + outputs
+        return torch.stack(outputs)
+
+
 
 
 class THDloss(nn.Module):

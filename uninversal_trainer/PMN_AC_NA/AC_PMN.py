@@ -16,7 +16,7 @@ validation_percentage = 0.1
 torch.manual_seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")#  use gpu if available
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  #  use gpu if available
 
 
 class ConvLSTMCell(nn.Module):
